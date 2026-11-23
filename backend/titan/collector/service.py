@@ -4,7 +4,7 @@
 
 После многоуровневой модернизации (специф §16):
 - опрашивает ДВА Modbus-устройства (unit 1 = ТП-1, unit 2 = ТП-2);
-- live-кэш ключуется «объект:точка» ('tp1_incomer:U', 'tp2_f3:I', ...);
+- live-кэш ключуется «объект:точка» ('arm1_incomer:U', 'sec2_f3:I', ...);
 - каждая ТП опрашивается НЕЗАВИСИМО: потеря связи одной ТП не влияет
   на другую (реалистичная локализация аварии);
 - «владелец» аварии читается из регистра 20 (индекс фидера) — событие
@@ -26,7 +26,7 @@ from titan.simulator.engine import (
     REG_BREAKER, REG_FAULT, REG_FAULT_OBJ, REG_I, REG_PF, REG_P, REG_Q,
     REG_THDI, REG_THDU, REG_U,
 )
-from titan.simulator.factory import UNITS, get_parent
+from titan.simulator.factory import UNITS
 
 log = logging.getLogger(__name__)
 
@@ -95,12 +95,12 @@ class TpPoller:
         self.client = client
         self.sessionmaker = sessionmaker
         self.objects = UNITS[unit_id]          # все объекты этой ТП
-        self.live: dict[str, Reading] = {}     # 'tp1_incomer:U' -> Reading
+        self.live: dict[str, Reading] = {}     # 'arm1_incomer:U' -> Reading
         self.fault_seen = 0                    # последний виденный код аварии
         self.events = EventGenerator(sessionmaker)
 
     def _key(self, obj_id: str, code: str) -> str:
-        """Ключ live-кэша: 'tp1_f2:I'."""
+        """Ключ live-кэша: 'sec1_f2:I'."""
         return f"{obj_id}:{code}"
 
     async def read_registers(self) -> list[int] | None:
@@ -155,11 +155,14 @@ class TpPoller:
                     log.exception("Не удалось записать осциллограмму")
         self.fault_seen = fault_code
 
-        # --- Раскладка значений по объектам ТП ---
+        # --- Раскладка значений по объектам плеча ПС ---
         feeders = [o for o in self.objects if o.kind == "feeder"]
         n_feeders = max(len(feeders), 1)
-        # Имя ТП для событий (родитель любого объекта ТП)
-        tp_obj = get_parent(self.objects[0].id)
+
+        # Состояние СЕКЦИОННОГО выключателя (регистр 12, только unit 2):
+        # добавляем в live-кэш точку 'sec_qf:BREAKER'
+        if comm_ok and len(raw) > 12:
+            new[self._key("sec_qf", "BREAKER")] = Reading("BREAKER", float(raw[12]), "good")
 
         for obj in self.objects:
             for code, (addr, scale, _unit, kind) in POINTS.items():
@@ -226,9 +229,12 @@ class Collector:
             snap = await poller.poll_once()
             snapshots.append((poller, snap))
             result.update(snap)
-        # Запись в архив + события (per-ТП)
+        # Запись в архив + события (per-плечо). collector_persist=False —
+        # режим RBAC-тестов: live-кэш работает, БД не трогаем (нет блокировок)
         for poller, snap in snapshots:
-            if any(r.quality != "suspect" or r.value != 0.0 for r in snap.values()):
+            if settings.collector_persist and any(
+                r.quality != "suspect" or r.value != 0.0 for r in snap.values()
+            ):
                 await poller.persist(snap)
         return result
 

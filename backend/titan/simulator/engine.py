@@ -17,6 +17,7 @@
   9: отложенная команда ТУ (0=нет,1=вкл,2=откл)
  20: индекс объекта аварии (1..4 = номер фидера; 0 = ввод/секция)
  21: мощность фидеров, кВт (распределение по фидерам на UI)
+ 12: состояние СЕКЦИОННОГО выключателя (только unit 2; 0=откл,1=вкл)
 """
 import asyncio
 import logging
@@ -36,6 +37,7 @@ REG_U, REG_I, REG_P, REG_Q = 0, 1, 2, 3
 REG_THDU, REG_THDI, REG_PF = 4, 5, 6
 REG_BREAKER, REG_FAULT, REG_CMD = 7, 8, 9
 REG_FAULT_OBJ, REG_FEEDER_P = 20, 21
+REG_SECTIONAL = 12                  # секционный QF (только unit 2)
 
 # Коды аварий симулятора (регистр 8)
 FAULT_CODES = {
@@ -43,6 +45,7 @@ FAULT_CODES = {
     "overload": 2,        # перегрузка
     "overvoltage": 3,     # перенапряжение
     "cable_break": 4,     # обрыв кабеля / потеря связи с объектом
+    "line_loss_110": 5,   # потеря ввода 110 кВ (плечо обесточено целиком)
 }
 
 
@@ -54,12 +57,20 @@ class ScenarioEngine:
     """
 
     def __init__(self, unit_id: int) -> None:
-        self.unit_id = unit_id                 # 1 или 2 (ТП)
+        self.unit_id = unit_id                 # 1 или 2 (плечо подстанции)
         self.injection: dict | None = None     # {object_id, scenario, until}
         self.breaker: int = 1                  # выключатель ввода: 1=вкл, 0=откл
         self.pending_cmd: int = 0              # отложенная ТУ-команда
         self.cmd_deadline: float = 0.0         # когда актуатор исполнит команду
         self.actuator_delay: float = 2.0       # задержка привода, с (специф §6.3)
+        # Секционный QF (учитывается только у unit 2, но поле у обоих — проще)
+        self.sectional: int = 0                # 0=откл (норм. режим), 1=вкл
+        self.pending_sectional: int = 0        # отложенная ТУ на секционный
+
+    def command_sectional(self, cmd: int) -> None:
+        """ТУ-команда на СЕКЦИОННЫЙ выключатель (1=вкл, 2=откл)."""
+        self.pending_sectional = cmd
+        self.cmd_deadline = time.monotonic() + self.actuator_delay
 
     def inject(self, object_id: str, scenario: str, duration_s: float) -> None:
         """Точечная инъекция: сценарий на конкретный объект своей ТП."""
@@ -80,20 +91,27 @@ class ScenarioEngine:
         """Один шаг: пересчитать регистры ТП (4 раза/с)."""
         now = time.monotonic()
 
-        # Исполнение отложенной ТУ-команды
+        # Исполнение отложенной ТУ-команды (ввод)
         if self.pending_cmd and now >= self.cmd_deadline:
             self.breaker = 1 if self.pending_cmd == 1 else 0
-            log.info("ТП-%d актуатор: выключатель -> %s",
+            log.info("Плечо %d актуатор: ввод 10 кВ -> %s",
                      self.unit_id, "вкл" if self.breaker else "откл")
             self.pending_cmd = 0
 
+        # Исполнение отложенной ТУ на СЕКЦИОННЫЙ выключатель
+        if self.pending_sectional and now >= self.cmd_deadline:
+            self.sectional = 1 if self.pending_sectional == 1 else 0
+            log.info("Плечо %d актуатор: секционный QF -> %s",
+                     self.unit_id, "вкл" if self.sectional else "откл")
+            self.pending_sectional = 0
+
         # Завершение инъекции по времени
         if self.injection and now >= self.injection["until"]:
-            log.info("ТП-%d инъекция %s завершена",
+            log.info("Плечо %d инъекция %s завершена",
                      self.unit_id, self.injection["scenario"])
             self.injection = None
 
-        # --- Базовый нормальный режим ТП ---
+        # --- Базовый нормальный режим плеча ---
         hour = time.localtime().tm_hour
         base_p = 120 + 60 * (1 - abs(hour - 14) / 12)
         u, i, p, q = 230.0, 25.0, base_p, 40.0
@@ -110,7 +128,7 @@ class ScenarioEngine:
                 fault_obj_idx = int(obj.id.rsplit("_f", 1)[1])
 
             if scenario == "short_circuit":
-                # КЗ на линии: ток ×6, сработка МТЗ отключает ВВОД ТП
+                # КЗ на линии: ток ×6, сработка МТЗ отключает ВВОД плеча
                 i *= 6.0
                 pf = 0.15
                 self.breaker = 0
@@ -127,11 +145,17 @@ class ScenarioEngine:
                 u = 460.0
                 fault_code = FAULT_CODES["overvoltage"]
             elif scenario == "cable_break":
-                # Обрыв кабеля фидера: мощность ТП проседает (фидер отвалился),
+                # Обрыв кабеля фидера: мощность плеча проседает (фидер отвалился),
                 # вводные значения остаются «нормальными» по границам
                 p *= 0.55
                 i *= 0.55
                 fault_code = FAULT_CODES["cable_break"]
+            elif scenario == "line_loss_110":
+                # ПОТЕРЯ ВВОДА 110 кВ: всё плечо обесточено (Q-110 отключается
+                # защитой ЛЭП), секция I/II без питания. Переброс — через
+                # секционный QF вручную диспетчером (ключевой сценарий ТЗ).
+                self.breaker = 0
+                fault_code = FAULT_CODES["line_loss_110"]
 
         # Шум — «реальность» измерений
         u += random.uniform(-1.5, 1.5)
@@ -141,9 +165,12 @@ class ScenarioEngine:
         thdi += random.uniform(-0.5, 0.5)
 
         # Обесточено: выключатель ввода отключён (КЗ — исключение: ток виден
-        # до сработки, перегрузка при отключённом вводе не имеет смысла)
+        # до сработки, перегрузка при отключённом вводе не имеет смысла).
+        # ИСКЛЮЧЕНИЕ для секционного режима: если секционный QF ВКЛЮЧЕН и
+        # чужой ввод работает — секция ЗАПИТАНА «через СВ» (переброс).
+        # Проверку делает SimulatorService._run: он знает состояние ОБЕИХ половин.
         if self.breaker == 0 and (
-            inj is None or inj["scenario"] in ("overload", "cable_break")
+            inj is None or inj["scenario"] in ("overload", "cable_break", "line_loss_110")
         ):
             u, i, p, q = 0.0, 0.0, 0.0, 0.0
 
@@ -154,7 +181,8 @@ class ScenarioEngine:
             REG_FAULT: fault_code,
             REG_CMD: self.pending_cmd,
             REG_FAULT_OBJ: fault_obj_idx,
-            REG_FEEDER_P: int(p * 0.6),   # ~60% мощности ТП уходит в фидеры
+            REG_FEEDER_P: int(p * 0.6),   # ~60% мощности плеча уходит в фидеры
+            REG_SECTIONAL: self.sectional,
         }
 
 
@@ -190,9 +218,19 @@ class SimulatorService:
                  settings.sim_host, settings.sim_port)
 
     async def stop(self) -> None:
-        """Остановить симулятор."""
+        """Остановить симулятор (с ожиданием завершения цикла и TCP-сервера).
+
+        Нужен именно await-вариант: тесты поднимают/гасят lifespan многократно —
+        без ожидания старый TCP-сервер не успевает освободить порт 5021,
+        и следующий lifespan получает «address already in use»/мёртвые регистры.
+        """
         if self._task:
             self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
         log.info("Симулятор остановлен")
 
     async def _run(self) -> None:
@@ -233,6 +271,29 @@ class SimulatorService:
                         continue
 
                     regs = engine.tick()
+
+                    # --- СЕКЦИОННЫЙ ПЕРЕБРОС (ключевой сценарий ТЗ) ---
+                    # Плечо обесточено (ввод 0) + секционный QF включён +
+                    # СОСЕДНЕЕ плечо в работе -> секция ЗАПИТАНА через СВ:
+                    # имитируем U/I/P от соседа (≈90% номинала плеча).
+                    other = self.engines[2 if uid == 1 else 1]
+                    sectional = self.engines[2].sectional   # СВ живёт в unit 2
+                    if (engine.breaker == 0 and sectional == 1
+                            and other.breaker == 1
+                            and not (engine.injection
+                                     and engine.injection["scenario"] == "short_circuit")):
+                        hour = time.localtime().tm_hour
+                        base_p = 120 + 60 * (1 - abs(hour - 14) / 12)
+                        regs[REG_U] = 228
+                        regs[REG_I] = int(base_p / 230 * 0.45 * 10)
+                        regs[REG_P] = int(base_p * 0.9)
+                        regs[REG_Q] = 36
+                        regs[REG_THDU] = 30
+                        regs[REG_THDI] = 72
+                        regs[REG_PF] = 95
+                        # FAULT остаётся как есть (аларм «потеря ввода» виден,
+                        # но секция запитана — диспетчер видит результат переброса)
+
                     store = self._server[uid].store["h"]
                     # pymodbus 3.x смещает адреса на +1 — пишем addr+1
                     for addr, val in regs.items():

@@ -2,11 +2,11 @@
 """
 Генератор событий: превращает изменения телеметрии в записи журнала.
 
-После multi-object модернизации (специф §16):
-- process_fault() — авария с «владельцем»: object_name = «ТП-1, Ф-2»
+Multi-object (специф §16) + модель ПС 110/10 (MVP_SCADA_Denis):
+- process_fault() — авария с «владельцем»: object_name = «Секция I, Ф-2»
   (событие привязано к КОНКРЕТНОМУ объекту — по нему диспетчер ищет
   место аварии на уровнях мнемосхемы);
-- process() — ненормальные режимы per-object (ключ кеша 'tp1_f2:U'),
+- process() — ненормальные режимы per-object (ключ кеша 'sec1_f2:U'),
   без дублирования до возврата в норму.
 """
 import asyncio
@@ -25,6 +25,7 @@ FAULT_MESSAGES = {
     2: ("overload", "high", "Перегрузка: ток превышает допустимый"),
     3: ("overvoltage", "high", "Перенапряжение на секции"),
     4: ("cable_break", "critical", "Обрыв кабеля: потеря связи с объектом"),
+    5: ("line_loss_110", "critical", "Потеря ввода 110 кВ — плечо обесточено, требуется переброс через секционный QF"),
 }
 
 # Уставки/границы для сообщений (специф §8: «значение сработки / уставка»)
@@ -34,29 +35,32 @@ FAULT_SETPOINTS = {
     3: 242.0,     # верхняя граница напряжения, В
 }
 
+# Префикс id объектов по unit: unit 1 -> arm1/sec1, unit 2 -> arm2/sec2
+UNIT_PREFIX = {1: {"arm": "arm1", "sec": "sec1"}, 2: {"arm": "arm2", "sec": "sec2"}}
+
 
 class EventGenerator:
-    """Создание событий журнала для ОДНОЙ ТП (передаётся unit_id).
+    """Создание событий журнала для ОДНОГО плеча ПС (передаётся unit_id).
 
     Активные ненормальные режимы хранятся per-object+per-code
-    ('tp1_f2:U' -> True), чтобы не дублировать события.
+    ('sec1_f2:U' -> True), чтобы не дублировать события.
     """
 
     def __init__(self, sessionmaker: async_sessionmaker, unit_id: int = 1) -> None:
         self.sessionmaker = sessionmaker
         self.unit_id = unit_id
-        # Активные ненормальные режимы: {'tp1_f2:U': True}
+        # Активные ненормальные режимы: {'sec1_f2:U': True}
         self._active: dict[str, bool] = {}
         self._last_fault = 0
 
     def _obj_name(self, obj_id: str) -> str:
-        """Человекочитаемое имя объекта + родитель: 'ТП-1, Ф-2'."""
+        """Человекочитаемое имя объекта + родитель: 'Секция I, Ф-2'."""
         from titan.simulator.factory import find_object, get_parent
         obj = find_object(obj_id)
         if obj is None:
-            return f"ТП-{self.unit_id}"
+            return f"Плечо {self.unit_id}"
         parent = get_parent(obj.id)
-        if parent and parent.id != "factory":
+        if parent and parent.id != "ps":
             return f"{parent.name}, {obj.name}"
         return obj.name
 
@@ -72,13 +76,13 @@ class EventGenerator:
         """
         code, priority, message = FAULT_MESSAGES[fault_code]
 
-        # Идентификация объекта-владельца
+        # Идентификация объекта-владельца (модель ПС 110/10)
+        pref = UNIT_PREFIX.get(unit_id, UNIT_PREFIX[1])
         if fault_obj_idx > 0:
-            obj_id = f"tp{unit_id}_f{fault_obj_idx}"
-            obj_name = self._obj_name(obj_id)
+            obj_id = f"{pref['sec']}_f{fault_obj_idx}"    # фидер секции
         else:
-            obj_id = f"tp{unit_id}_incomer"
-            obj_name = self._obj_name(obj_id)
+            obj_id = f"{pref['arm']}_incomer"             # ввод 10 кВ плеча
+        obj_name = self._obj_name(obj_id)
 
         # Значение сработки + уставка (ТЗ 3.3.3)
         setpoint = FAULT_SETPOINTS.get(fault_code)

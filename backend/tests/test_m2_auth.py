@@ -15,12 +15,8 @@ import os
 
 os.environ.setdefault("TITAN_TEST_DB", "1")   # temp SQLite (основное ставит conftest)
 
-# RBAC-тестам фоновые задачи не нужны: коллектор (poll 1 Гц) конкурировал
-# с журналами за запись в SQLite → «database is locked». settings — singleton,
-# создан при первом импорте titan.*, поэтому выключаем напрямую.
-from titan.config import settings as _settings
-_settings.sim_enabled = False
-_settings.collector_enabled = False
+# Персист коллектора гасится фикстурой client (NO_PERSIST-механизм в conftest)
+NO_PERSIST = True
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -32,10 +28,19 @@ from titan.models.db import Base, OperatorAction
 
 @pytest.fixture
 async def client():
-    """Клиент с запущенным lifespan (симулятор+коллектор+БД)."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        async with app.router.lifespan_context(app):
-            yield ac
+    """Клиент с запущенным lifespan; persist коллектора гасится на время теста.
+
+    settings.collector_persist читается коллектором В КАЖДОМ цикле опроса,
+    поэтому переключение действует динамически, без пересоздания движка.
+    """
+    from titan.config import settings as _s
+    _s.collector_persist = False        # нет записи 1 Гц → нет блокировок БД
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            async with app.router.lifespan_context(app):
+                yield ac
+    finally:
+        _s.collector_persist = True     # вернуть для следующих тестовых файлов
 
 
 def auth(token: str) -> dict:
@@ -90,7 +95,7 @@ async def test_admin_endpoints_require_admin(client):
     assert r.status_code == 403
     # пульт симулятора — только admin (multi-object API: требуется object_id)
     r = await client.post("/api/sim/fault", headers=auth(disp_token),
-                          params={"object_id": "tp1_incomer", "scenario": "overload"})
+                          params={"object_id": "arm1_incomer", "scenario": "overload"})
     assert r.status_code == 403
 
 

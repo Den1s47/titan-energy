@@ -16,11 +16,24 @@ from titan.api.app import app
 
 
 @pytest.fixture
-async def client():
-    """HTTP-клиент поверх приложения с запущенным lifespan (общий для всех тестов)."""
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        async with app.router.lifespan_context(app):
-            yield ac
+async def client(request):
+    """HTTP-клиент поверх приложения с запущенным lifespan (общий для всех тестов).
+
+    Модуль может объявить NO_PERSIST = True (m2/m5): коллектор жив, но запись
+    телеметрии в БД гасится на время теста — иначе его запись 1 Гц конкурирует
+    с INSERT журналов/сидами → «database is locked».
+    """
+    from titan.config import settings as _s
+    no_persist = getattr(request.module, "NO_PERSIST", False)
+    if no_persist:
+        _s.collector_persist = False
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            async with app.router.lifespan_context(app):
+                yield ac
+    finally:
+        if no_persist:
+            _s.collector_persist = True
 
     # После теста: сброс live-кэшей коллектора, ТУ-токенов и состояния движков
     # симулятора (singleton — инъекция КЗ из одного теста не должна «перетекать»

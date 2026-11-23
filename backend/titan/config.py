@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     sim_port: int = 5020             # порт Modbus TCP (стандартный 502 занят системой)
     sim_enabled: bool = True         # embedded-режим: симулятор стартует вместе с API
     collector_enabled: bool = True   # опрос включён
+    collector_persist: bool = True   # запись телеметрии в БД (гасится в RBAC-тестах)
     poll_interval: float = 1.0       # период опроса, с (ТЗ: не реже 1 раза в секунду)
 
     def __init__(self, **kwargs) -> None:

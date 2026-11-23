@@ -9,6 +9,9 @@
 # из-за конфликта с conftest самого Hermes при запуске из другой cwd)
 import pytest
 
+# Seed-данные (сотни строк) + коллектор 1 Гц = блокировки БД; гасим persist
+NO_PERSIST = True
+
 
 async def login(client, username="admin", password="admin") -> str:
     """Вход дефолтным админом -> JWT."""
@@ -120,7 +123,7 @@ async def _seed_measurements(minutes: int = 30, base: float = 100.0):
     for i in range(minutes * 60):   # 1 Гц
         t = now - timedelta(seconds=minutes * 60 - i)
         value = base + 10 * math.sin(i / 60) + random.uniform(-2, 2)
-        rows.append(Measurement(time=t, point_code="P", value=value, quality="good"))
+        rows.append(Measurement(time=t, point_code="tp1_incomer:P", value=value, quality="good"))
     async with sessionmaker() as session:
         session.add_all(rows)
         await session.commit()

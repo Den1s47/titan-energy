@@ -9,11 +9,6 @@ import asyncio
 
 import pytest
 
-# ТУ-тестам нужен ЖИВОЙ симулятор+коллектор (m2 их выключил на singleton)
-from titan.config import settings as _settings
-_settings.sim_enabled = True
-_settings.collector_enabled = True
-
 from titan.collector.service import Reading
 
 
@@ -36,7 +31,7 @@ async def test_tu_select_requires_dispatcher(client):
     vtok = (await client.post("/api/auth/login",
             json={"username": "v1", "password": "pw"})).json()["access_token"]
     r = await client.post("/api/commands/select", headers=auth(vtok),
-                          json={"object_name": "Ввод", "action": "open"})
+                          json={"object_name": "Ввод 10 кВ №1", "action": "open"})
     assert r.status_code == 403
 
 
@@ -47,12 +42,12 @@ async def test_tu_full_success_cycle(client):
 
     # Текущее состояние выключателя (ключ ввода ТП-1 в multi-object кэше)
     live = (await client.get("/api/live", headers=h)).json()
-    current = int(live["tp1_incomer:BREAKER"]["value"])
+    current = int(live["arm1_incomer:BREAKER"]["value"])
 
     # Шаг 1: выбор противоположной команды
     action = "open" if current == 1 else "close"
     r = await client.post("/api/commands/select", headers=h,
-                          json={"object_name": "Ввод", "action": action})
+                          json={"object_name": "Ввод 10 кВ №1", "action": action})
     assert r.status_code == 200
     token_op = r.json()["token"]
     assert r.json()["expires_in_s"] == 10     # таймаут выбора из ТЗ
@@ -67,7 +62,7 @@ async def test_tu_full_success_cycle(client):
     # live-кэш подтверждает новое состояние
     await asyncio.sleep(0.3)
     live = (await client.get("/api/live", headers=h)).json()
-    assert int(live["tp1_incomer:BREAKER"]["value"]) == body["state"]
+    assert int(live["arm1_incomer:BREAKER"]["value"]) == body["state"]
 
 
 async def test_tu_select_timeout(client):
@@ -77,7 +72,7 @@ async def test_tu_select_timeout(client):
     h = auth(token)
 
     r = await client.post("/api/commands/select", headers=h,
-                          json={"object_name": "Ввод", "action": "open"})
+                          json={"object_name": "Ввод 10 кВ №1", "action": "open"})
     tok = r.json()["token"]
 
     # Симулируем истечение: сдвигаем дедлайн в прошлое
@@ -93,15 +88,15 @@ async def test_tu_block_on_fault(client):
 
     # Вживую ставим код аварии в live-кэш коллектора (ключ ввода ТП-1)
     from titan.api.commands import _collector
-    _collector.pollers[1].live["tp1_incomer:FAULT"] = Reading("FAULT", 1.0, "good")
+    _collector.pollers[1].live["arm1_incomer:FAULT"] = Reading("FAULT", 1.0, "good")
 
     r = await client.post("/api/commands/select", headers=h,
-                          json={"object_name": "Ввод", "action": "open"})
+                          json={"object_name": "Ввод 10 кВ №1", "action": "open"})
     assert r.status_code == 409
     assert "запрещено" in r.json()["detail"]
 
     # Убираем аварию
-    _collector.pollers[1].live["tp1_incomer:FAULT"] = Reading("FAULT", 0.0, "good")
+    _collector.pollers[1].live["arm1_incomer:FAULT"] = Reading("FAULT", 0.0, "good")
 
 
 async def test_waveform_generated_on_short_circuit(client):
@@ -111,7 +106,7 @@ async def test_waveform_generated_on_short_circuit(client):
 
     # Запускаем КЗ через пульт: ТОЧЕЧНО на ввод ТП-1 (multi-object API)
     r = await client.post("/api/sim/fault", headers=h,
-                          params={"object_id": "tp1_incomer",
+                          params={"object_id": "arm1_incomer",
                                   "scenario": "short_circuit", "duration_s": 3})
     assert r.status_code == 200
 

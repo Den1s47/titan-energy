@@ -41,14 +41,30 @@ _pending: dict[str, dict] = {}
 
 # Программные блокировки ТУ (специф §7.2: таблица interlocks).
 # Функция получает состояние системы и возвращает текст блокировки или None.
-# Multi-object: ключи live-кэша — 'tp1_incomer:FAULT', 'tp1_incomer:BREAKER'.
+# Multi-object: ключи live-кэша — 'arm1_incomer:FAULT', 'sec_qf:BREAKER'.
 def _check_interlocks(object_name: str, action: str, live: dict) -> str | None:
-    # Блокировка «аварийный режим»: код аварии на ЛЮБОЙ ТП != 0
-    # (ввод ТП управляет питанием — при аварии где угодно ТУ запрещено)
+    # Блокировка «аварийный режим»: код аварии на ЛЮБОМ плече != 0
     for key, reading in live.items():
         if key.endswith(":FAULT") and reading.value != 0:
             return "аварийный режим — ТУ запрещено"
-    if object_name == "Ввод" and action == "open":
+
+    # --- Блокировки СЕКЦИОННОГО выключателя (MVP_SCADA_Denis) ---
+    if object_name == "Секционный QF":
+        if action == "close":
+            # 1) Параллельная работа источников запрещена (ключевая блокировка
+            #    из документа: оба ввода должны быть в работе — переброс допустим
+            #    только когда одно плечо ОБЕСТОЧЕНО)
+            a = live.get("arm1_incomer:BREAKER")
+            b = live.get("arm2_incomer:BREAKER")
+            if a and b and int(a.value) == 1 and int(b.value) == 1:
+                return "параллельная работа вводов запрещена — отключите один из вводов перед включением СВ"
+            # 2) Если ОБА ввода отключены — включать СВ некуда (нечего перебрасывать)
+            if a and b and int(a.value) == 0 and int(b.value) == 0:
+                return "оба ввода обесточены — включение СВ бессмысленно"
+        # Открывать СВ при запитанной секции можно (возврат на свой ввод)
+        return None
+
+    if object_name == "Ввод 10 кВ №1" and action == "open":
         for key, reading in live.items():
             if key.endswith(":P") and reading.value > 300:
                 return "отключение ввода при мощности > 300 кВт запрещено (демо-блокировка)"
@@ -140,19 +156,25 @@ async def operate(body: OperateRequest,
     target_state = 1 if op["action"] == "close" else 0
     cmd_code = 1 if op["action"] == "close" else 2
 
-    # --- Выдача команды в «оборудование» ---
-    # В реальной системе это write-канал адаптера (специф §6.1);
-    # в MVP пишем регистр отложенной команды ТУ симулятора.
-    # ТУ идёт на ввод ТП-1 (unit 1) — в MVP один управляемый аппарат
-    _simulator.get_engine(1).command(cmd_code)
+    # --- Маршрутизация команды по объекту (модель ПС 110/10) ---
+    # 'Секционный QF' -> unit 2, метод command_sectional (регистр 12);
+    # 'Ввод 10 кВ №1' -> unit 1, command (регистр 9);
+    # 'Ввод 10 кВ №2' -> unit 2, command (регистр 9).
+    if op["object"] == "Секционный QF":
+        _simulator.get_engine(2).command_sectional(cmd_code)
+        breaker_key = "sec_qf:BREAKER"
+    elif op["object"] == "Ввод 10 кВ №2":
+        _simulator.get_engine(2).command(cmd_code)
+        breaker_key = "arm2_incomer:BREAKER"
+    else:
+        _simulator.get_engine(1).command(cmd_code)
+        breaker_key = "arm1_incomer:BREAKER"
     log.info("ТУ %s: команда %d выдана пользователем %s",
              op["object"], cmd_code, user["username"])
 
     # --- Ожидание изменения состояния (окно 5 с, поллинг 0.25 с) ---
-    # Multi-object: следим за BREAKER ввода ТП-1 ('tp1_incomer:BREAKER')
     deadline = time.monotonic() + OPERATE_WAIT_S
     success = False
-    breaker_key = "tp1_incomer:BREAKER"
     while time.monotonic() < deadline:
         await asyncio.sleep(0.25)
         breaker = _collector.live.get(breaker_key)

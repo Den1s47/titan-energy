@@ -54,7 +54,7 @@ async def test_live_and_fault_flow(client):
     token = await login_admin(client)
 
     # Ждём первый успешный цикл опроса (до ~5 с, опрос идёт раз в 1 с).
-    # Multi-object: ключи live — 'tp1_incomer:U' и т.п.
+    # Multi-object: ключи live — 'arm1_incomer:U' и т.п.
     live = {}
     for _ in range(20):
         r = await client.get("/api/live", headers=auth(token))
@@ -67,14 +67,14 @@ async def test_live_and_fault_flow(client):
 
     # Инъекция КЗ на ввод ТП-1: API принимает (пульт — только admin)
     r = await client.post("/api/sim/fault", headers=auth(token),
-                          params={"object_id": "tp1_incomer",
+                          params={"object_id": "arm1_incomer",
                                   "scenario": "short_circuit"})
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
     # Неизвестный сценарий отклоняется
     r = await client.post("/api/sim/fault", headers=auth(token),
-                          params={"object_id": "tp1_incomer",
+                          params={"object_id": "arm1_incomer",
                                   "scenario": "unknown"})
     assert r.json()["ok"] is False
 
