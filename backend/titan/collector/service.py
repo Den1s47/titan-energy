@@ -165,6 +165,11 @@ class TpPoller:
             new[self._key("sec_qf", "BREAKER")] = Reading("BREAKER", float(raw[12]), "good")
 
         for obj in self.objects:
+            # Секционный QF не в общем цикле: его состояние приходит из
+            # регистра 12 выше (иначе BREAKER перезаписывался бы регистром 7
+            # чужого ввода — у СВ свой адрес в карте регистров)
+            if obj.kind == "sectional":
+                continue
             for code, (addr, scale, _unit, kind) in POINTS.items():
                 key = self._key(obj.id, code)
                 if not comm_ok:

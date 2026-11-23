@@ -62,12 +62,13 @@ export interface LivePoint {
   quality: 'good' | 'suspect' | 'bad'
 }
 
-/** Узел дерева объектов завода (специф §16): factory -> ТП -> фидеры. */
+/** Узел дерева объектов завода (специф §16): ПС 110/10 -> плечи/секции -> фидеры. */
 export interface FactoryTree {
   id: string
   name: string
-  kind: 'group' | 'incomer' | 'transformer' | 'bus' | 'feeder'
-  feeders?: string[]           // подписи фидеров (только у ТП)
+  kind: 'group' | 'incomer' | 'incomer110' | 'incomer10' | 'sectional' | 'transformer' | 'bus' | 'feeder'
+  voltage?: string
+  feeders?: string[]           // подписи фидеров (только у секций)
   children: FactoryTree[]
 }
 

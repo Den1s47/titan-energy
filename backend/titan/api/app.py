@@ -241,7 +241,7 @@ async def sim_fault(object_id: str, scenario: str, duration_s: float = 10.0,
         scenario: short_circuit | overload | overvoltage | cable_break
         duration_s: длительность сценария в секундах
     """
-    allowed = {"short_circuit", "overload", "overvoltage", "cable_break"}
+    allowed = {"short_circuit", "overload", "overvoltage", "cable_break", "line_loss_110"}
     if scenario not in allowed:
         return {"ok": False, "error": f"scenario must be one of {sorted(allowed)}"}
 

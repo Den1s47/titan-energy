@@ -43,9 +43,11 @@ _pending: dict[str, dict] = {}
 # Функция получает состояние системы и возвращает текст блокировки или None.
 # Multi-object: ключи live-кэша — 'arm1_incomer:FAULT', 'sec_qf:BREAKER'.
 def _check_interlocks(object_name: str, action: str, live: dict) -> str | None:
-    # Блокировка «аварийный режим»: код аварии на ЛЮБОМ плече != 0
+    # Блокировка «аварийный режим»: код аварии != 0. ИСКЛЮЧЕНИЕ — «потеря
+    # ввода 110 кВ» (код 5): именно при ней выполняется переброс через СВ
+    # (ключевой сценарий MVP_SCADA_Denis: авария на линии -> переброс потребителей).
     for key, reading in live.items():
-        if key.endswith(":FAULT") and reading.value != 0:
+        if key.endswith(":FAULT") and reading.value not in (0, 5):
             return "аварийный режим — ТУ запрещено"
 
     # --- Блокировки СЕКЦИОННОГО выключателя (MVP_SCADA_Denis) ---
