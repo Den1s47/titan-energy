@@ -40,9 +40,9 @@ async def test_tu_full_success_cycle(client):
     token = await login(client)
     h = auth(token)
 
-    # Текущее состояние выключателя
+    # Текущее состояние выключателя (ключ ввода ТП-1 в multi-object кэше)
     live = (await client.get("/api/live", headers=h)).json()
-    current = int(live["BREAKER"]["value"])
+    current = int(live["tp1_incomer:BREAKER"]["value"])
 
     # Шаг 1: выбор противоположной команды
     action = "open" if current == 1 else "close"
@@ -62,7 +62,7 @@ async def test_tu_full_success_cycle(client):
     # live-кэш подтверждает новое состояние
     await asyncio.sleep(0.3)
     live = (await client.get("/api/live", headers=h)).json()
-    assert int(live["BREAKER"]["value"]) == body["state"]
+    assert int(live["tp1_incomer:BREAKER"]["value"]) == body["state"]
 
 
 async def test_tu_select_timeout(client):
@@ -86,9 +86,9 @@ async def test_tu_block_on_fault(client):
     token = await login(client)
     h = auth(token)
 
-    # Вживую ставим код аварии в live-кэш коллектора
+    # Вживую ставим код аварии в live-кэш коллектора (ключ ввода ТП-1)
     from titan.api.commands import _collector
-    _collector.live["FAULT"] = Reading("FAULT", 1.0, "good")
+    _collector.pollers[1].live["tp1_incomer:FAULT"] = Reading("FAULT", 1.0, "good")
 
     r = await client.post("/api/commands/select", headers=h,
                           json={"object_name": "Ввод", "action": "open"})
@@ -96,7 +96,7 @@ async def test_tu_block_on_fault(client):
     assert "запрещено" in r.json()["detail"]
 
     # Убираем аварию
-    _collector.live["FAULT"] = Reading("FAULT", 0.0, "good")
+    _collector.pollers[1].live["tp1_incomer:FAULT"] = Reading("FAULT", 0.0, "good")
 
 
 async def test_waveform_generated_on_short_circuit(client):
@@ -104,9 +104,10 @@ async def test_waveform_generated_on_short_circuit(client):
     token = await login(client)
     h = auth(token)
 
-    # Запускаем КЗ через пульт
+    # Запускаем КЗ через пульт: ТОЧЕЧНО на ввод ТП-1 (multi-object API)
     r = await client.post("/api/sim/fault", headers=h,
-                          params={"scenario": "short_circuit", "duration_s": 3})
+                          params={"object_id": "tp1_incomer",
+                                  "scenario": "short_circuit", "duration_s": 3})
     assert r.status_code == 200
 
     # Ждём: коллектор увидит код аварии и создаст осциллограмму (фоновая задача)

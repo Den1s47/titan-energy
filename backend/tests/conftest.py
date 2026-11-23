@@ -22,18 +22,19 @@ async def client():
         async with app.router.lifespan_context(app):
             yield ac
 
-    # После теста: сброс live-кэша коллектора, ТУ-токенов и состояния движка
-    # симулятора (он singleton — инъекция КЗ из одного теста не должна
-    # «перетекать» в следующий: breaker, pending_cmd, injection)
+    # После теста: сброс live-кэшей коллектора, ТУ-токенов и состояния движков
+    # симулятора (singleton — инъекция КЗ из одного теста не должна «перетекать»
+    # в следующий: breaker, pending_cmd, injection — на КАЖДОЙ ТП)
     from titan.api import commands
     if commands._collector:
-        commands._collector.live = {}
+        for poller in commands._collector.pollers.values():
+            poller.live = {}
     commands._pending.clear()
-    sim_engine = commands._simulator.engine
-    sim_engine.injection = None
-    sim_engine.injection_until = 0.0
-    sim_engine.breaker = 1
-    sim_engine.pending_cmd = 0
+    if commands._simulator:
+        for engine in commands._simulator.engines.values():
+            engine.injection = None
+            engine.breaker = 1
+            engine.pending_cmd = 0
 
 
 # ---------- Общие хелперы для всех тестовых файлов ----------

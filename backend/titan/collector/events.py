@@ -2,11 +2,12 @@
 """
 Генератор событий: превращает изменения телеметрии в записи журнала.
 
-Логика (специф §5.3, §8 / ТЗ 3.3.3):
-- код аварии (FAULT != 0) -> событие cls=alarm (приоритет по типу аварии);
-- переход quality good -> suspect/bad -> событие cls=abnormal;
-- пока параметр не вернётся в норму, событие НЕ дублируется
-  (защита от спама в журнале — состояние хранится в self._active).
+После multi-object модернизации (специф §16):
+- process_fault() — авария с «владельцем»: object_name = «ТП-1, Ф-2»
+  (событие привязано к КОНКРЕТНОМУ объекту — по нему диспетчер ищет
+  место аварии на уровнях мнемосхемы);
+- process() — ненормальные режимы per-object (ключ кеша 'tp1_f2:U'),
+  без дублирования до возврата в норму.
 """
 import asyncio
 import logging
@@ -18,113 +19,78 @@ from titan.models.db import Event, utcnow
 
 log = logging.getLogger(__name__)
 
-# Человекочитаемые сообщения для кодов аварий симулятора (специф §6.2, регистр 8)
+# Человекочитаемые сообщения по кодам аварий симулятора (регистр 8)
 FAULT_MESSAGES = {
-    1: ("short_circuit", "critical", "Аварийное отключение по сигналу МТЗ (КЗ)"),
+    1: ("short_circuit", "critical", "КЗ на линии, сработка МТЗ"),
     2: ("overload", "high", "Перегрузка: ток превышает допустимый"),
-    3: ("overvoltage", "high", "Перенапряжение: выход за верхнюю границу"),
+    3: ("overvoltage", "high", "Перенапряжение на секции"),
+    4: ("cable_break", "critical", "Обрыв кабеля: потеря связи с объектом"),
 }
 
 # Уставки/границы для сообщений (специф §8: «значение сработки / уставка»)
 FAULT_SETPOINTS = {
-    1: (400.0, "уставка МТЗ: 400 А"),   # ток срабатывания защиты
-    2: (200.0, "граница: 200 А"),
-    3: (242.0, "верхняя граница: 242 В"),
+    1: 400.0,     # уставка МТЗ, А
+    2: 200.0,     # граница тока, А
+    3: 242.0,     # верхняя граница напряжения, В
 }
 
 
 class EventGenerator:
-    """Сопоставляет снапшоты телеметрии с активными событиями и создаёт новые.
+    """Создание событий журнала для ОДНОЙ ТП (передаётся unit_id).
 
-    Держит в памяти self._active — какие события уже «подняты» и ещё
-    не закрыты (параметр не вернулся в норму), чтобы не дублировать их.
+    Активные ненормальные режимы хранятся per-object+per-code
+    ('tp1_f2:U' -> True), чтобы не дублировать события.
     """
 
-    def __init__(self, sessionmaker: async_sessionmaker) -> None:
+    def __init__(self, sessionmaker: async_sessionmaker, unit_id: int = 1) -> None:
         self.sessionmaker = sessionmaker
-        # Активные ненормальные режимы: {code: True} — событие уже в журнале
+        self.unit_id = unit_id
+        # Активные ненормальные режимы: {'tp1_f2:U': True}
         self._active: dict[str, bool] = {}
-        # Последний виденный код аварии — чтобы создать alarm один раз на код
-        self._last_fault: int = 0
+        self._last_fault = 0
 
-    async def process(self, snapshot: dict) -> list[Event]:
-        """Обработать один снапшот телеметрии -> список новых событий.
+    def _obj_name(self, obj_id: str) -> str:
+        """Человекочитаемое имя объекта + родитель: 'ТП-1, Ф-2'."""
+        from titan.simulator.factory import find_object, get_parent
+        obj = find_object(obj_id)
+        if obj is None:
+            return f"ТП-{self.unit_id}"
+        parent = get_parent(obj.id)
+        if parent and parent.id != "factory":
+            return f"{parent.name}, {obj.name}"
+        return obj.name
+
+    async def process_fault(self, fault_code: int, fault_obj_idx: int,
+                            unit_id: int, tp_values: dict) -> Event:
+        """Событие класса alarm с «владельцем» аварии.
 
         Args:
-            snapshot: {code: Reading} из Collector.poll_once()
-        Returns:
-            список новых Event (уже записанных в БД)
+            fault_code: код из регистра 8 (1=КЗ, 2=перегрузка, 3=перенапр, 4=обрыв)
+            fault_obj_idx: индекс фидера из регистра 20 (0 = ввод/секция)
+            unit_id: ТП, где произошла авария
+            tp_values: декодированные общие значения ТП {code: value}
         """
-        events: list[Event] = []
-
-        # --- 1. Аварии по коду FAULT ---
-        fault_code = int(snapshot.get("FAULT").value) if "FAULT" in snapshot else 0
-        if fault_code != 0 and fault_code != self._last_fault:
-            # Новый код аварии -> создаём событие класса alarm
-            events.append(self._make_fault_event(fault_code, snapshot))
-            # При КЗ — синтезируем и архивируем осциллограмму (ТЗ: осциллограммы
-            # при сработках; async-задача, чтобы не тормозить цикл опроса)
-            if fault_code == 1:
-                asyncio.get_running_loop().create_task(self._store_waveform())
-        self._last_fault = fault_code
-
-        # --- 2. Ненормальные режимы: переходы quality good -> suspect/bad ---
-        # Обесточивание не считается аварией: если выключатель ОТКЛЮЧЁН,
-        # то U=0 / I=0 — это штатный режим, а не потеря напряжения.
-        breaker_on = "BREAKER" in snapshot and snapshot["BREAKER"].value == 1
-        for code, reading in snapshot.items():
-            if code in ("FAULT", "BREAKER"):
-                continue  # уже обработаны или не являются параметрами
-            if not breaker_on and reading.value == 0.0:
-                # Обесточено: нулевые значения — норма, пропускаем валидацию
-                if self._active.get(code, False):
-                    # если параметр был в аварии до отключения — закрыть событие
-                    self._active[code] = False
-                continue
-            was_active = self._active.get(code, False)
-            is_bad = reading.quality in ("suspect", "bad")
-            if is_bad and not was_active:
-                # Вход в ненормальный режим -> событие
-                events.append(self._make_abnormal_event(code, reading))
-                self._active[code] = True
-            elif not is_bad and was_active:
-                # Возврат в норму -> закрываем (новое событие о возврате)
-                events.append(self._make_return_event(code, reading))
-                self._active[code] = False
-
-        # --- 3. Запись новых событий в БД ---
-        if events:
-            async with self.sessionmaker() as session:
-                session.add_all(events)
-                await session.commit()
-            log.info("Новых событий: %d", len(events))
-        return events
-
-    async def _store_waveform(self) -> None:
-        """Синтезировать и сохранить осциллограмму КЗ (фоновая задача)."""
-        from titan.api.waveforms import generate_fault_waveform
-        try:
-            await generate_fault_waveform(fault_code=1, object_name="ТП-1")
-        except Exception:
-            # Осциллограмма не должна ронять цикл опроса
-            log.exception("Не удалось записать осциллограмму")
-
-    def _make_fault_event(self, fault_code: int, snapshot: dict) -> Event:
-        """Сформировать событие класса alarm по коду аварии."""
         code, priority, message = FAULT_MESSAGES[fault_code]
-        value = setpoint = None
-        # Подставляем значение сработки и уставку (ТЗ 3.3.3: обязательные поля)
-        if fault_code in FAULT_SETPOINTS:
-            setpoint = FAULT_SETPOINTS[fault_code][0]
-        if fault_code == 1 and "I" in snapshot:      # для КЗ значением является ток
-            value = snapshot["I"].value
-        elif fault_code == 2 and "I" in snapshot:
-            value = snapshot["I"].value
-        elif fault_code == 3 and "U" in snapshot:    # для перенапряжения — напряжение
-            value = snapshot["U"].value
-        return Event(
+
+        # Идентификация объекта-владельца
+        if fault_obj_idx > 0:
+            obj_id = f"tp{unit_id}_f{fault_obj_idx}"
+            obj_name = self._obj_name(obj_id)
+        else:
+            obj_id = f"tp{unit_id}_incomer"
+            obj_name = self._obj_name(obj_id)
+
+        # Значение сработки + уставка (ТЗ 3.3.3)
+        setpoint = FAULT_SETPOINTS.get(fault_code)
+        value = None
+        if fault_code in (1, 2) and "I" in tp_values:
+            value = tp_values["I"]
+        elif fault_code == 3 and "U" in tp_values:
+            value = tp_values["U"]
+
+        event = Event(
             time=utcnow(),
-            object_name="ТП-1",                # в MVP один объект
+            object_name=obj_name,
             cls="alarm",
             priority=priority,
             code=code,
@@ -132,41 +98,75 @@ class EventGenerator:
             value=value,
             setpoint=setpoint,
         )
+        async with self.sessionmaker() as session:
+            session.add(event)
+            await session.commit()
+        log.info("Аларм: %s | %s (знач=%s, уставка=%s)", obj_name, message, value, setpoint)
 
-    def _make_abnormal_event(self, code: str, reading) -> Event:
-        """Сформировать событие о входе в ненормальный режим (quality suspect/bad)."""
-        return Event(
-            time=utcnow(),
-            object_name="ТП-1",
-            cls="abnormal",
-            priority="high",                       # предаварийный режим
-            code=f"quality_{code.lower()}",
-            message=f"Выход параметра {code} за технологические границы",
-            value=reading.value,
-        )
+        # При КЗ — синтезируем и архивируем осциллограмму (фоновая задача)
+        if fault_code == 1:
+            asyncio.get_running_loop().create_task(self._store_waveform(obj_name))
+        return event
 
-    def _make_return_event(self, code: str, reading) -> Event:
-        """Сформировать событие о возврате параметра в норму (информационное)."""
-        return Event(
-            time=utcnow(),
-            object_name="ТП-1",
-            cls="state",
-            priority="info",
-            code=f"return_{code.lower()}",
-            message=f"Параметр {code} вернулся в норму",
-            value=reading.value,
-        )
+    async def process(self, snapshot: dict) -> list[Event]:
+        """Ненормальные режимы per-object: переходы quality good -> suspect/bad.
+
+        Args:
+            snapshot: {'tp1_f2:U': Reading, ...} (ключ = 'obj_id:code')
+        """
+        events: list[Event] = []
+        now = utcnow()
+
+        for key, reading in snapshot.items():
+            if ":FAULT" in key or ":BREAKER" in key:
+                continue   # дискреты не участвуют в «ненормальных режимах»
+            obj_id, code = key.split(":", 1)
+
+            was_active = self._active.get(key, False)
+            is_bad = reading.quality in ("suspect", "bad")
+
+            if is_bad and not was_active:
+                events.append(Event(
+                    time=now,
+                    object_name=self._obj_name(obj_id),
+                    cls="abnormal",
+                    priority="high",
+                    code=f"quality_{code.lower()}",
+                    message=f"Выход параметра {code} за технологические границы",
+                    value=reading.value,
+                ))
+                self._active[key] = True
+            elif not is_bad and was_active:
+                events.append(Event(
+                    time=now,
+                    object_name=self._obj_name(obj_id),
+                    cls="state",
+                    priority="info",
+                    code=f"return_{code.lower()}",
+                    message=f"Параметр {code} вернулся в норму",
+                    value=reading.value,
+                ))
+                self._active[key] = False
+
+        if events:
+            async with self.sessionmaker() as session:
+                session.add_all(events)
+                await session.commit()
+            log.info("Новых событий: %d", len(events))
+        return events
+
+    async def _store_waveform(self, object_name: str) -> None:
+        """Синтезировать и сохранить осциллограмму КЗ (фоновая задача)."""
+        from titan.api.waveforms import generate_fault_waveform
+        try:
+            await generate_fault_waveform(fault_code=1, object_name=object_name)
+        except Exception:
+            log.exception("Не удалось записать осциллограмму")
 
 
 async def get_events(sessionmaker: async_sessionmaker, cls: str | None = None,
                      acked: bool | None = None, limit: int = 200) -> list[Event]:
-    """Выборка событий для журналов (специф §10: GET /events).
-
-    Args:
-        cls: фильтр по классу (alarm|abnormal|state|operator) или None — все
-        acked: фильтр по квитированию (True/False/None — все)
-        limit: максимум записей
-    """
+    """Выборка событий для журналов (специф §10: GET /events)."""
     async with sessionmaker() as session:
         stmt = select(Event).order_by(Event.time.desc()).limit(limit)
         if cls:

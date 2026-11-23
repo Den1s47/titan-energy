@@ -53,23 +53,33 @@ async def test_live_and_fault_flow(client):
 
     token = await login_admin(client)
 
-    # Ждём первый успешный цикл опроса (до ~5 с, опрос идёт раз в 1 с)
+    # Ждём первый успешный цикл опроса (до ~5 с, опрос идёт раз в 1 с).
+    # Multi-object: ключи live — 'tp1_incomer:U' и т.п.
     live = {}
     for _ in range(20):
         r = await client.get("/api/live", headers=auth(token))
         live = r.json()
-        if live and "U" in live:     # первый непустой снапшот
+        if live and any(k.endswith(":U") for k in live):
             break
         await asyncio.sleep(0.25)
-    assert "U" in live and "I" in live       # телеметрия дошла до API
+    assert any(k.endswith(":U") for k in live)          # телеметрия дошла до API
+    assert any(k.endswith(":I") for k in live)
 
-    # Инъекция КЗ: API принимает валидный сценарий (пульт — только admin)
+    # Инъекция КЗ на ввод ТП-1: API принимает (пульт — только admin)
     r = await client.post("/api/sim/fault", headers=auth(token),
-                          params={"scenario": "short_circuit"})
+                          params={"object_id": "tp1_incomer",
+                                  "scenario": "short_circuit"})
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
     # Неизвестный сценарий отклоняется
     r = await client.post("/api/sim/fault", headers=auth(token),
-                          params={"scenario": "unknown"})
+                          params={"object_id": "tp1_incomer",
+                                  "scenario": "unknown"})
+    assert r.json()["ok"] is False
+
+    # Неизвестный объект тоже отклоняется
+    r = await client.post("/api/sim/fault", headers=auth(token),
+                          params={"object_id": "no_such",
+                                  "scenario": "short_circuit"})
     assert r.json()["ok"] is False

@@ -232,21 +232,50 @@ async def actions(limit: int = 200,
 
 
 @app.post("/api/sim/fault")
-async def sim_fault(scenario: str, duration_s: float = 10.0,
+async def sim_fault(object_id: str, scenario: str, duration_s: float = 10.0,
                     admin: dict = Depends(require_role("admin"))) -> dict:
-    """Пульт симулятора: инъекция сценария (специф §10) — только admin.
+    """Пульт симулятора: ТОЧЕЧНАЯ инъекция на объект (специф §16) — admin.
 
     Args:
-        scenario: 'short_circuit' | 'overload' | 'overvoltage' | 'actuator_fail' | 'comm_loss'
+        object_id: id объекта дерева завода ('tp1', 'tp1_f2', 'tp2_bus', ...)
+        scenario: short_circuit | overload | overvoltage | cable_break
         duration_s: длительность сценария в секундах
     """
-    allowed = {"short_circuit", "overload", "overvoltage", "actuator_fail", "comm_loss"}
+    allowed = {"short_circuit", "overload", "overvoltage", "cable_break"}
     if scenario not in allowed:
         return {"ok": False, "error": f"scenario must be one of {sorted(allowed)}"}
-    simulator.engine.inject(scenario, duration_s)
+
+    from titan.simulator.factory import find_object
+    obj = find_object(object_id)
+    if obj is None:
+        return {"ok": False, "error": f"unknown object: {object_id}"}
+    if obj.unit_id is None:
+        return {"ok": False, "error": "объект без привязки к ТП (только группы)"}
+
+    engine = simulator.get_engine(obj.unit_id)
+    # «Обрыв кабеля» на вводе ТП = потеря связи всей ТП (comm_loss)
+    if scenario == "cable_break" and obj.kind == "incomer":
+        engine.inject(object_id, "cable_break", duration_s)
+        msg = f"обрыв кабеля на вводе {obj.name}: потеря связи ТП-{obj.unit_id}"
+    else:
+        engine.inject(object_id, scenario, duration_s)
+        msg = f"{obj.name}: {scenario} на {duration_s} с"
+
     await log_action(sessionmaker, admin["username"], "sim_fault", "success",
-                     details=f"сценарий {scenario} на {duration_s} с")
-    return {"ok": True, "scenario": scenario, "duration_s": duration_s}
+                     object_name=obj.name, details=msg)
+    return {"ok": True, "object": obj.name, "object_id": object_id,
+            "scenario": scenario, "duration_s": duration_s}
+
+
+@app.get("/api/objects/tree")
+async def objects_tree(user: dict = Depends(require_role("viewer"))) -> dict:
+    """Дерево объектов завода для многоуровневой мнемосхемы (специф §16).
+
+    Уровни: factory -> tp1/tp2 -> incomer/tr/bus/feeders.
+    Фронтенд строит уровни 0/1/2 из этого дерева.
+    """
+    from titan.simulator.factory import tree_to_api
+    return tree_to_api()
 
 
 def _event_to_dict(e: Event) -> dict:

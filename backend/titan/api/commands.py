@@ -41,16 +41,17 @@ _pending: dict[str, dict] = {}
 
 # Программные блокировки ТУ (специф §7.2: таблица interlocks).
 # Функция получает состояние системы и возвращает текст блокировки или None.
+# Multi-object: ключи live-кэша — 'tp1_incomer:FAULT', 'tp1_incomer:BREAKER'.
 def _check_interlocks(object_name: str, action: str, live: dict) -> str | None:
-    # Блокировка «аварийный режим»: код аварии != 0 (точка может отсутствовать
-    # в пустом live-кэше — тогда считаем, что аварий нет)
-    fault = live.get("FAULT")
-    if fault is not None and fault.value != 0:
-        return "аварийный режим — ТУ запрещено"
+    # Блокировка «аварийный режим»: код аварии на ЛЮБОЙ ТП != 0
+    # (ввод ТП управляет питанием — при аварии где угодно ТУ запрещено)
+    for key, reading in live.items():
+        if key.endswith(":FAULT") and reading.value != 0:
+            return "аварийный режим — ТУ запрещено"
     if object_name == "Ввод" and action == "open":
-        p = live.get("P")
-        if p is not None and p.value > 300:
-            return "отключение ввода при мощности > 300 кВт запрещено (демо-блокировка)"
+        for key, reading in live.items():
+            if key.endswith(":P") and reading.value > 300:
+                return "отключение ввода при мощности > 300 кВт запрещено (демо-блокировка)"
     return None
 
 
@@ -142,16 +143,19 @@ async def operate(body: OperateRequest,
     # --- Выдача команды в «оборудование» ---
     # В реальной системе это write-канал адаптера (специф §6.1);
     # в MVP пишем регистр отложенной команды ТУ симулятора.
-    _simulator.engine.command(cmd_code)
+    # ТУ идёт на ввод ТП-1 (unit 1) — в MVP один управляемый аппарат
+    _simulator.get_engine(1).command(cmd_code)
     log.info("ТУ %s: команда %d выдана пользователем %s",
              op["object"], cmd_code, user["username"])
 
     # --- Ожидание изменения состояния (окно 5 с, поллинг 0.25 с) ---
+    # Multi-object: следим за BREAKER ввода ТП-1 ('tp1_incomer:BREAKER')
     deadline = time.monotonic() + OPERATE_WAIT_S
     success = False
+    breaker_key = "tp1_incomer:BREAKER"
     while time.monotonic() < deadline:
         await asyncio.sleep(0.25)
-        breaker = _collector.live.get("BREAKER")
+        breaker = _collector.live.get(breaker_key)
         if breaker is not None and int(breaker.value) == target_state:
             success = True
             break
