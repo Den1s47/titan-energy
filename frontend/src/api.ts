@@ -62,6 +62,15 @@ export interface LivePoint {
   quality: 'good' | 'suspect' | 'bad'
 }
 
+/** Узел дерева объектов завода (специф §16): factory -> ТП -> фидеры. */
+export interface FactoryTree {
+  id: string
+  name: string
+  kind: 'group' | 'incomer' | 'transformer' | 'bus' | 'feeder'
+  feeders?: string[]           // подписи фидеров (только у ТП)
+  children: FactoryTree[]
+}
+
 export interface UserInfo {
   username: string
   role: 'admin' | 'dispatcher' | 'viewer'
@@ -164,6 +173,9 @@ export const api = {
 
   me: () => apiFetch<UserInfo>('/api/me'),
   live: () => apiFetch<Record<string, LivePoint>>('/api/live'),
+
+  /** Дерево объектов завода (специф §16): factory -> ТП -> фидеры. */
+  objectsTree: () => apiFetch<FactoryTree>('/api/objects/tree'),
   events: (cls?: string) =>
     apiFetch<{ count: number; events: EventRow[] }>(
       `/api/events${cls ? `?cls=${cls}` : ''}`
@@ -182,10 +194,10 @@ export const api = {
     apiFetch<UserRow>(`/api/admin/users/${id}`, { method: 'PATCH', body: patch }),
   actions: () => apiFetch<{ count: number; actions: ActionRow[] }>('/api/actions'),
 
-  /** Пульт симулятора: инъекция сценария аварии. */
-  simFault: (scenario: string, durationS = 8) =>
-    apiFetch<{ ok: boolean }>(
-      `/api/sim/fault?scenario=${scenario}&duration_s=${durationS}`,
+  /** Пульт симулятора: ТОЧЕЧНАЯ инъекция на объект (специф §16). */
+  simFault: (objectId: string, scenario: string, durationS = 8) =>
+    apiFetch<{ ok: boolean; object: string; scenario: string }>(
+      `/api/sim/fault?object_id=${encodeURIComponent(objectId)}&scenario=${scenario}&duration_s=${durationS}`,
       { method: 'POST' }
     ),
 
