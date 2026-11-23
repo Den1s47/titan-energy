@@ -31,6 +31,19 @@ npm install && npm run build
 Открыть **http://127.0.0.1:8000** — вход admin / admin (сменить в разделе
 «Администрирование»!).
 
+### 2а. База данных
+- **PostgreSQL 16** (установлен локально, служба `postgresql-x64-16`,
+  данные в `C:\PostgreSQL\data`).
+- БД `titan` и пользователь `titan_app` / `titan2026` создаются вручную один раз:
+  ```sql
+  CREATE DATABASE titan ENCODING 'UTF8';
+  CREATE USER titan_app WITH PASSWORD 'titan2026';
+  GRANT ALL PRIVILEGES ON DATABASE titan TO titan_app;
+  ```
+- Таблицы создаются автоматически при старте приложения.
+- Старые данные (SQLite `titan.db`) не переносятся автоматически —
+  MVP начинался с чистой базы.
+
 ### 3. Проверка
 ```bash
 cd backend && uv run pytest    # 47 тестов, все зелёные
