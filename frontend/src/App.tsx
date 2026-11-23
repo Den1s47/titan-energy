@@ -12,6 +12,7 @@ import SimControlPage from './pages/SimControlPage'
 import MnemoPage from './pages/MnemoPage'
 import AlarmBar from './pages/AlarmBar'
 import AnalyticsPage from './pages/AnalyticsPage'
+import ErrorBoundary from './ErrorBoundary'
 
 // Пункт сайдбара
 function NavItem({ to, label, visible }: { to: string; label: string; visible: boolean }) {
@@ -51,13 +52,14 @@ function Layout() {
       </aside>
       <main className="content" style={{ paddingBottom: 190 }}>
         <Routes>
-          <Route path="/" element={<MnemoPage />} />
-          <Route path="/live" element={<LivePage />} />
-          <Route path="/events" element={<EventsPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          {/* ErrorBoundary на каждой странице: падение одного блока не уносит весь UI */}
+          <Route path="/" element={<ErrorBoundary label="Мнемосхема"><MnemoPage /></ErrorBoundary>} />
+          <Route path="/live" element={<ErrorBoundary label="Телеметрия"><LivePage /></ErrorBoundary>} />
+          <Route path="/events" element={<ErrorBoundary label="Журналы"><EventsPage /></ErrorBoundary>} />
+          <Route path="/analytics" element={<ErrorBoundary label="Аналитика"><AnalyticsPage /></ErrorBoundary>} />
           {/* Admin-зоны: не-admin редиректит на главную (бэкенд ещё и 403 вернёт) */}
-          <Route path="/admin" element={isAdmin ? <AdminPage /> : <Navigate to="/" replace />} />
-          <Route path="/sim" element={isAdmin ? <SimControlPage /> : <Navigate to="/" replace />} />
+          <Route path="/admin" element={isAdmin ? <ErrorBoundary label="Администрирование"><AdminPage /></ErrorBoundary> : <Navigate to="/" replace />} />
+          <Route path="/sim" element={isAdmin ? <ErrorBoundary label="Пульт симулятора"><SimControlPage /></ErrorBoundary> : <Navigate to="/" replace />} />
         </Routes>
       </main>
       {/* Аларм-бар внизу всех экранов (ТЗ 3.3.3) */}

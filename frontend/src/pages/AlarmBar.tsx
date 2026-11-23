@@ -7,6 +7,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type EventRow } from '../api'
 import { useAuth } from '../authStore'
+import ErrorBoundary from '../ErrorBoundary'
 
 // Вес приоритета для сортировки (ISA-18.2): critical сверху
 const PRIO_WEIGHT: Record<string, number> = { critical: 0, high: 1, low: 2, info: 3 }
@@ -15,7 +16,16 @@ function fmtTime(iso: string) {
   return iso.slice(11, 23)
 }
 
+// ErrorBoundary вокруг аларм-бара: его падение не должно уносить страницы
 export default function AlarmBar() {
+  return (
+    <ErrorBoundary label="Аларм-бар">
+      <AlarmBarInner />
+    </ErrorBoundary>
+  )
+}
+
+function AlarmBarInner() {
   const role = useAuth((s) => s.user?.role)
   const canAck = role === 'dispatcher' || role === 'admin'
   const queryClient = useQueryClient()
