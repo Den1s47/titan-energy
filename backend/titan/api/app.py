@@ -25,7 +25,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from titan.api.auth import log_action, require_role
 from titan.api.users import router as users_router
@@ -276,6 +276,28 @@ async def objects_tree(user: dict = Depends(require_role("viewer"))) -> dict:
     """
     from titan.simulator.factory import tree_to_api
     return tree_to_api()
+
+
+@app.get("/api/objects/alarm-stats")
+async def objects_alarm_stats(minutes: int = 60,
+                              user: dict = Depends(require_role("viewer"))) -> dict:
+    """Статистика аварий по объектам для тепловой карты завода (специф §16).
+
+    Возвращает число алармов (cls='alarm') на каждый объект за последние
+    N минут. Поле object_name хранит «ТП-1, Ф-2» — сопоставляется с деревом.
+    """
+    from datetime import timedelta
+    since = utcnow() - timedelta(minutes=minutes)
+    async with sessionmaker() as session:
+        result = await session.execute(
+            select(Event.object_name, func.count(Event.id))
+            .where(Event.cls == "alarm", Event.time >= since)
+            .group_by(Event.object_name)
+        )
+        rows = result.all()
+    return {"minutes": minutes, "objects": [
+        {"object": name, "alarms": cnt} for name, cnt in rows
+    ]}
 
 
 def _event_to_dict(e: Event) -> dict:

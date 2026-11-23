@@ -7,7 +7,21 @@
 - просмотр требует токена (401 без него);
 - роли отсекают действия: viewer не может ack (403), admin может всё;
 - журнал действий оператора пишется, включая неудачные попытки.
+
+Фичи симулятора/коллектора НЕ нужны — отключаем (медленные bcrypt + фоновый
+опрос к одной SQLite-файлу давали взаимные блокировки и «зависания» прогона).
 """
+import os
+
+os.environ.setdefault("TITAN_TEST_DB", "1")   # temp SQLite (основное ставит conftest)
+
+# RBAC-тестам фоновые задачи не нужны: коллектор (poll 1 Гц) конкурировал
+# с журналами за запись в SQLite → «database is locked». settings — singleton,
+# создан при первом импорте titan.*, поэтому выключаем напрямую.
+from titan.config import settings as _settings
+_settings.sim_enabled = False
+_settings.collector_enabled = False
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -74,9 +88,10 @@ async def test_admin_endpoints_require_admin(client):
     disp_token = r.json()["access_token"]
     r = await client.get("/api/admin/users", headers=auth(disp_token))
     assert r.status_code == 403
+    # пульт симулятора — только admin (multi-object API: требуется object_id)
     r = await client.post("/api/sim/fault", headers=auth(disp_token),
-                          params={"scenario": "overload"})
-    assert r.status_code == 403  # пульт симулятора — только admin
+                          params={"object_id": "tp1_incomer", "scenario": "overload"})
+    assert r.status_code == 403
 
 
 async def test_viewer_cannot_ack_but_dispatcher_can(client):

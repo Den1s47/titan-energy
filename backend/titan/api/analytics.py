@@ -34,7 +34,14 @@ ALLOWED_AVG_S = [30, 60, 180, 300, 600, 900]
 
 
 async def _load_values(point_code: str, minutes: float) -> list[float]:
-    """Загрузить значения точки за N минут (упорядоченные по времени)."""
+    """Загрузить значения точки за N минут (упорядоченные по времени).
+
+    Multi-object (специф §16): в БД коды вида 'tp1:P', 'tp2_f3:I'. Если
+    передан старый формат ('P'), берём точку ВВОДА ТП-1 ('tp1_incomer:P') —
+    обратная совместимость со старыми графиками/ссылками.
+    """
+    if ":" not in point_code:
+        point_code = f"tp1_incomer:{point_code}"
     since = utcnow() - timedelta(minutes=minutes)
     async with sessionmaker() as session:
         result = await session.execute(
@@ -47,6 +54,8 @@ async def _load_values(point_code: str, minutes: float) -> list[float]:
 
 async def _load_rows(point_code: str, minutes: float):
     """Загрузить полные записи (время+значение+quality) для экспорта."""
+    if ":" not in point_code:
+        point_code = f"tp1_incomer:{point_code}"
     since = utcnow() - timedelta(minutes=minutes)
     async with sessionmaker() as session:
         result = await session.execute(
@@ -76,7 +85,8 @@ async def analytics_series(point_code: str, minutes: float = 15,
     async with sessionmaker() as session:
         result = await session.execute(
             select(Measurement.time)
-            .where(Measurement.point_code == point_code, Measurement.time >= utcnow() - timedelta(minutes=minutes))
+            .where(Measurement.point_code == (point_code if ":" in point_code else f"tp1_incomer:{point_code}"),
+                   Measurement.time >= utcnow() - timedelta(minutes=minutes))
             .order_by(Measurement.time)
         )
         times = [fmt_iso_ms(t) for (t,) in result.all()]

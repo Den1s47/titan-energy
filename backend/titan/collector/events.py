@@ -103,9 +103,9 @@ class EventGenerator:
             await session.commit()
         log.info("Аларм: %s | %s (знач=%s, уставка=%s)", obj_name, message, value, setpoint)
 
-        # При КЗ — синтезируем и архивируем осциллограмму (фоновая задача)
-        if fault_code == 1:
-            asyncio.get_running_loop().create_task(self._store_waveform(obj_name))
+        # Осциллограмму при КЗ пишет КОЛЛЕКТОР (см. service.py) после чтения
+        # регистров — здесь фоновую задачу не создаём: «висячая» task держит
+        # event loop теста и блокирует следующие тесты в прогоне.
         return event
 
     async def process(self, snapshot: dict) -> list[Event]:

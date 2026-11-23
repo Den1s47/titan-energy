@@ -1,0 +1,665 @@
+C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\pytest_asyncio\plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+...F........                                                             [100%]
+================================== FAILURES ===================================
+_____________________ test_admin_endpoints_require_admin ______________________
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1977: in _exec_single_context
+    self.dialect.do_execute(
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:1192: in do_execute
+    cursor.execute(statement, parameters)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:258: in execute
+    self._adapt_connection._handle_exception(error)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:412: in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py:237: in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:409: in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:256: in execute
+    return await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\concurrency.py:171: in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\concurrency.py:209: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:279: in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\cursor.py:40: in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+.venv\Lib\site-packages\aiosqlite\cursor.py:32: in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\core.py:160: in _execute
+    return await future
+           ^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\core.py:63: in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+E   sqlite3.OperationalError: database is locked
+
+The above exception was the direct cause of the following exception:
+tests\test_m2_auth.py:77: in test_admin_endpoints_require_admin
+    r = await client.post("/api/auth/login",
+.venv\Lib\site-packages\httpx\_client.py:1859: in post
+    return await self.request(
+.venv\Lib\site-packages\httpx\_client.py:1540: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_client.py:1629: in send
+    response = await self._send_handling_auth(
+.venv\Lib\site-packages\httpx\_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+.venv\Lib\site-packages\httpx\_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx\_transports\asgi.py:170: in handle_async_request
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\fastapi\applications.py:1224: in __call__
+    await super().__call__(scope, receive, send)
+.venv\Lib\site-packages\starlette\applications.py:96: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv\Lib\site-packages\starlette\middleware\errors.py:186: in __call__
+    raise exc
+.venv\Lib\site-packages\starlette\middleware\errors.py:164: in __call__
+    await self.app(scope, receive, _send)
+.venv\Lib\site-packages\fastapi\telemetry\_asgi.py:151: in __call__
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\fastapi\_body_limit.py:80: in __call__
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+.venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+.venv\Lib\site-packages\starlette\routing.py:683: in __call__
+    await self.middleware_stack(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:2929: in app
+    await route.handle(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:1916: in handle
+    await self.original_router.handle(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:3015: in handle
+    await included_router._handle_selected(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:1945: in _handle_selected
+    await original_route.handle(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:1373: in handle
+    await effective_context.app(scope, receive, send)
+.venv\Lib\site-packages\fastapi\routing.py:175: in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+.venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+.venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+.venv\Lib\site-packages\fastapi\routing.py:161: in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\fastapi\routing.py:762: in app
+    raw_response = await run_endpoint_function(
+.venv\Lib\site-packages\fastapi\routing.py:381: in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+titan\api\users.py:69: in login
+    await log_action(sessionmaker, user.username, "login", "success")
+titan\api\auth.py:139: in log_action
+    await session.commit()
+.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py:1309: in commit
+    await greenlet_spawn(self.sync_session.commit)
+.venv\Lib\site-packages\sqlalchemy\util\concurrency.py:216: in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:2177: in commit
+    trans.commit(_to_root=True)
+<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction.commit>:2: in commit
+    return target(fn, self, _to_root=_to_root)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1412: in commit
+    self._prepare_impl()
+<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction._prepare_impl>:2: in _prepare_impl
+    return target(fn, self)
+           ^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:1386: in _prepare_impl
+    self.session.flush()
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4626: in flush
+    self._flush(objects)
+<sqlalchemy generated warned() wrapper for sqlalchemy.orm.session.Session._flush>:2: in _flush
+    return target(fn, self, objects=objects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\deprecations.py:281: in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4769: in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py:166: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+.venv\Lib\site-packages\sqlalchemy\orm\session.py:4730: in _flush
+    flush_context.execute()
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:467: in execute
+    rec.execute(self)
+.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py:643: in execute
+    util.preloaded.orm_persistence._save_obj(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:92: in _save_obj
+    _emit_insert_statements(
+.venv\Lib\site-packages\sqlalchemy\orm\persistence.py:1250: in _emit_insert_statements
+    result = connection.execute(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1494: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:534: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1714: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1868: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1996: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2351: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1977: in _exec_single_context
+    self.dialect.do_execute(
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:1192: in do_execute
+    cursor.execute(statement, parameters)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:258: in execute
+    self._adapt_connection._handle_exception(error)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:412: in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py:237: in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:409: in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:256: in execute
+    return await_(self._execute_async(operation, parameters))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\concurrency.py:171: in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\util\concurrency.py:209: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py:279: in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\cursor.py:40: in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+.venv\Lib\site-packages\aiosqlite\cursor.py:32: in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\core.py:160: in _execute
+    return await future
+           ^^^^^^^^^^^^
+.venv\Lib\site-packages\aiosqlite\core.py:63: in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+E   sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) database is locked
+E   [SQL: INSERT INTO operator_actions (time, username, action, object_name, result, details) VALUES (?, ?, ?, ?, ?, ?)]
+E   [parameters: ('2026-11-23 14:17:54.376691', 'admin', 'login', None, 'success', None)]
+E   (Background on this error at: https://sqlalche.me/e/21/e3q8)
+---------------------------- Captured stderr setup ----------------------------
+2026-11-23 17:17:53,706 titan.simulator.engine INFO Симулятор Modbus TCP: 2 устройства на 127.0.0.1:5021 (unit 1,2)
+2026-11-23 17:17:53,707 pymodbus.logging INFO Server listening.
+2026-11-23 17:17:54,319 titan.collector.service INFO Коллектор запущен: 2 ТП, опрос 1.0 с
+----------------------------- Captured log setup ------------------------------
+INFO     titan.simulator.engine:engine.py:189 Симулятор Modbus TCP: 2 устройства на 127.0.0.1:5021 (unit 1,2)
+INFO     pymodbus.logging:base.py:85 Server listening.
+INFO     titan.collector.service:service.py:239 Коллектор запущен: 2 ТП, опрос 1.0 с
+---------------------------- Captured stderr call -----------------------------
+2026-11-23 17:18:26,899 titan.collector.service ERROR Ошибка цикла опроса
+Traceback (most recent call last):
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2113, in _exec_insertmany_context
+    dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlite3.OperationalError: database is locked
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 252, in _run
+    await self.poll_once()
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 232, in poll_once
+    await poller.persist(snap)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 197, in persist
+    await session.commit()
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 1309, in commit
+    await greenlet_spawn(self.sync_session.commit)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 216, in greenlet_spawn
+    result = context.switch(value)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2177, in commit
+    trans.commit(_to_root=True)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction.commit>", line 2, in commit
+    return target(fn, self, _to_root=_to_root)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1412, in commit
+    self._prepare_impl()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction._prepare_impl>", line 2, in _prepare_impl
+    return target(fn, self)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1386, in _prepare_impl
+    self.session.flush()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4626, in flush
+    self._flush(objects)
+    ~~~~~~~~~~~^^^^^^^^^
+  File "<sqlalchemy generated warned() wrapper for sqlalchemy.orm.session.Session._flush>", line 2, in _flush
+    return target(fn, self, objects=objects)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4769, in _flush
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 166, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4730, in _flush
+    flush_context.execute()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 467, in execute
+    rec.execute(self)
+    ~~~~~~~~~~~^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 643, in execute
+    util.preloaded.orm_persistence._save_obj(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self.mapper,
+        ^^^^^^^^^^^^
+        uow.states_for_mapper_hierarchy(self.mapper, False, False),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        uow,
+        ^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\persistence.py", line 92, in _save_obj
+    _emit_insert_statements(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        base_mapper,
+        ^^^^^^^^^^^^
+    ...<3 lines>...
+        insert,
+        ^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\persistence.py", line 1160, in _emit_insert_statements
+    result = connection.execute(
+        statement, multiparams, execution_options=execution_options
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1494, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 534, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1714, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1866, in _execute_context
+    return self._exec_insertmany_context(dialect, context)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2130, in _exec_insertmany_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e,
+        ^^
+    ...<4 lines>...
+        is_sub_exec=True,
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2113, in _exec_insertmany_context
+    dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) database is locked
+[SQL: INSERT INTO measurements (time, point_code, value, quality) VALUES (?, ?, ?, ?) RETURNING id]
+[parameters: ('2026-11-23 14:17:54.325129', 'tp1:U', 230.0, 'good')]
+(Background on this error at: https://sqlalche.me/e/21/e3q8)
+------------------------------ Captured log call ------------------------------
+ERROR    titan.collector.service:service.py:254 Ошибка цикла опроса
+Traceback (most recent call last):
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2113, in _exec_insertmany_context
+    dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlite3.OperationalError: database is locked
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 252, in _run
+    await self.poll_once()
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 232, in poll_once
+    await poller.persist(snap)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\titan\collector\service.py", line 197, in persist
+    await session.commit()
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 1309, in commit
+    await greenlet_spawn(self.sync_session.commit)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 216, in greenlet_spawn
+    result = context.switch(value)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2177, in commit
+    trans.commit(_to_root=True)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction.commit>", line 2, in commit
+    return target(fn, self, _to_root=_to_root)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1412, in commit
+    self._prepare_impl()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "<sqlalchemy generated _go() wrapper for sqlalchemy.orm.session.SessionTransaction._prepare_impl>", line 2, in _prepare_impl
+    return target(fn, self)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 1386, in _prepare_impl
+    self.session.flush()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4626, in flush
+    self._flush(objects)
+    ~~~~~~~~~~~^^^^^^^^^
+  File "<sqlalchemy generated warned() wrapper for sqlalchemy.orm.session.Session._flush>", line 2, in _flush
+    return target(fn, self, objects=objects)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\deprecations.py", line 281, in warned
+    return fn(*args, **kwargs)  # type: ignore[no-any-return]
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4769, in _flush
+    with util.safe_reraise():
+         ~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 166, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\session.py", line 4730, in _flush
+    flush_context.execute()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 467, in execute
+    rec.execute(self)
+    ~~~~~~~~~~~^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 643, in execute
+    util.preloaded.orm_persistence._save_obj(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self.mapper,
+        ^^^^^^^^^^^^
+        uow.states_for_mapper_hierarchy(self.mapper, False, False),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        uow,
+        ^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\persistence.py", line 92, in _save_obj
+    _emit_insert_statements(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        base_mapper,
+        ^^^^^^^^^^^^
+    ...<3 lines>...
+        insert,
+        ^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\orm\persistence.py", line 1160, in _emit_insert_statements
+    result = connection.execute(
+        statement, multiparams, execution_options=execution_options
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1494, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 534, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1714, in _execute_clauseelement
+    ret = self._execute_context(
+        dialect,
+    ...<9 lines>...
+        param_dict=param_dict,
+    )
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1866, in _execute_context
+    return self._exec_insertmany_context(dialect, context)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2130, in _exec_insertmany_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e,
+        ^^
+    ...<4 lines>...
+        is_sub_exec=True,
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2351, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2113, in _exec_insertmany_context
+    dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~^
+        cursor,
+        ^^^^^^^
+    ...<2 lines>...
+        context,
+        ^^^^^^^^
+    )
+    ^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 1192, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 258, in execute
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 256, in execute
+    return await_(self._execute_async(operation, parameters))
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 171, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 209, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 279, in _execute_async
+    result = await self._cursor.execute(operation, parameters)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) database is locked
+[SQL: INSERT INTO measurements (time, point_code, value, quality) VALUES (?, ?, ?, ?) RETURNING id]
+[parameters: ('2026-11-23 14:17:54.325129', 'tp1:U', 230.0, 'good')]
+(Background on this error at: https://sqlalche.me/e/21/e3q8)
+-------------------------- Captured stderr teardown ---------------------------
+2026-11-23 17:18:27,871 titan.collector.service INFO Коллектор остановлен
+2026-11-23 17:18:27,871 titan.simulator.engine INFO Симулятор остановлен
+2026-11-23 17:18:27,872 pymodbus.logging INFO Server graceful shutdown.
+---------------------------- Captured log teardown ----------------------------
+INFO     titan.collector.service:service.py:246 Коллектор остановлен
+INFO     titan.simulator.engine:engine.py:196 Симулятор остановлен
+INFO     pymodbus.logging:base.py:89 Server graceful shutdown.
+============================== warnings summary ===============================
+tests/test_m2_auth.py: 5 warnings
+tests/test_m4_tu.py: 5 warnings
+  C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\jwt\api_jwt.py:149: InsecureKeyLengthWarning: The HMAC key is 20 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_m2_auth.py::test_login_success_and_me
+tests/test_m2_auth.py::test_viewer_cannot_ack_but_dispatcher_can
+tests/test_m2_auth.py::test_user_crud_and_protections
+tests/test_m2_auth.py::test_operator_actions_logged
+tests/test_m4_tu.py::test_tu_select_requires_dispatcher
+tests/test_m4_tu.py::test_tu_full_success_cycle
+tests/test_m4_tu.py::test_tu_select_timeout
+tests/test_m4_tu.py::test_tu_block_on_fault
+tests/test_m4_tu.py::test_waveform_generated_on_short_circuit
+  C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\jwt\api_jwt.py:370: InsecureKeyLengthWarning: The HMAC key is 20 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    decoded = self.decode_complete(
+
+tests/test_m2_auth.py::test_user_crud_and_protections
+  C:\Users\HP\HermesProjects\titan-energy\backend\.venv\Lib\site-packages\fastapi\routing.py:381: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    return await dependant.call(**values)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_m2_auth.py::test_admin_endpoints_require_admin - sqlalchemy...
+1 failed, 11 passed, 20 warnings in 49.30s

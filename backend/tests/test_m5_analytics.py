@@ -5,9 +5,21 @@
 Проверяем математические функции (усреднения, статистика, Шухарт, CUSUM)
 на детерминированных данных + API-эндпоинты с реальной БД.
 """
+# Хелперы auth/login дублируются локально (conftest проекта недоступен как пакет
+# из-за конфликта с conftest самого Hermes при запуске из другой cwd)
 import pytest
 
-from tests.conftest import login, auth
+
+async def login(client, username="admin", password="admin") -> str:
+    """Вход дефолтным админом -> JWT."""
+    r = await client.post("/api/auth/login", json={"username": username, "password": password})
+    return r.json()["access_token"]
+
+
+def auth(token: str) -> dict:
+    """Заголовок Authorization."""
+    return {"Authorization": f"Bearer {token}"}
+
 from titan.analytics.stats import (
     cusum, histogram_stats, moving_average, shewhart_zones, basic_stats,
 )

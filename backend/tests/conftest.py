@@ -35,6 +35,14 @@ async def client():
             engine.injection = None
             engine.breaker = 1
             engine.pending_cmd = 0
+    # Полное закрытие соединений БД: незакрытые write-транзакции aiosqlite
+    # держали файловую блокировку до 30 с (busy_timeout) и «подвешивали»
+    # следующий тест («database is locked» на INSERT).
+    from titan.models import session as _session
+    if _session.engine is not None:
+        await _session.engine.dispose()
+        _session.engine = None          # следующий lifespan создаст заново
+        _session.sessionmaker = None
 
 
 # ---------- Общие хелперы для всех тестовых файлов ----------

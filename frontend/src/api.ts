@@ -176,6 +176,12 @@ export const api = {
 
   /** Дерево объектов завода (специф §16): factory -> ТП -> фидеры. */
   objectsTree: () => apiFetch<FactoryTree>('/api/objects/tree'),
+
+  /** Статистика аварий по объектам (тепловая карта, специф §16). */
+  alarmStats: (minutes = 60) =>
+    apiFetch<{ minutes: number; objects: Array<{ object: string; alarms: number }> }>(
+      `/api/objects/alarm-stats?minutes=${minutes}`
+    ),
   events: (cls?: string) =>
     apiFetch<{ count: number; events: EventRow[] }>(
       `/api/events${cls ? `?cls=${cls}` : ''}`

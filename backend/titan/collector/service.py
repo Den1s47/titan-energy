@@ -138,9 +138,21 @@ class TpPoller:
                 continue
             tp_values[code] = raw[addr] * scale
 
-        # --- Событие аварии (с «владельцем») ---
+        # --- Событие аварии (с «владельцем») + осциллограмма при КЗ ---
         if comm_ok and fault_code != 0 and fault_code != self.fault_seen:
-            await self.events.process_fault(fault_code, fault_obj_idx, self.unit_id, tp_values)
+            fault_event = await self.events.process_fault(
+                fault_code, fault_obj_idx, self.unit_id, tp_values
+            )
+            # КЗ (код 1): синтезируем осциллограмму ПРЯМО ЗДЕСЬ (не фоновой
+            # задачей) — «висячие» tasks блокировали event loop тестов
+            if fault_code == 1:
+                from titan.api.waveforms import generate_fault_waveform
+                try:
+                    await generate_fault_waveform(
+                        fault_code=1, object_name=fault_event.object_name
+                    )
+                except Exception:
+                    log.exception("Не удалось записать осциллограмму")
         self.fault_seen = fault_code
 
         # --- Раскладка значений по объектам ТП ---

@@ -9,6 +9,11 @@ import asyncio
 
 import pytest
 
+# ТУ-тестам нужен ЖИВОЙ симулятор+коллектор (m2 их выключил на singleton)
+from titan.config import settings as _settings
+_settings.sim_enabled = True
+_settings.collector_enabled = True
+
 from titan.collector.service import Reading
 
 

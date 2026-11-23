@@ -71,7 +71,7 @@ const FAULT_LABELS: Record<number, string> = {
 }
 
 // ============================================================
-// УРОВЕНЬ 0: ЗАВОД (обзорные плитки обеих ТП)
+// УРОВЕНЬ 0: ЗАВОД (обзорные плитки обеих ТП + тепловая карта аварий)
 // ============================================================
 function FactoryLevel({ tree, live, onOpenTp, onTpContextMenu }: {
   tree: FactoryTree
@@ -79,9 +79,41 @@ function FactoryLevel({ tree, live, onOpenTp, onTpContextMenu }: {
   onOpenTp: (tp: FactoryTree) => void
   onTpContextMenu: (e: React.MouseEvent, tp: FactoryTree) => void
 }) {
+  // Тепловая карта: число алармов по объектам за последний час (обновление 5 с)
+  const { data: stats } = useQuery({
+    queryKey: ['alarmStats'],
+    queryFn: () => api.alarmStats(60),
+    refetchInterval: 5000,
+  })
+  // Сопоставление: имя объекта события -> узел дерева
+  const alarmByLeaf: Record<string, number> = {}
+  for (const o of stats?.objects ?? []) {
+    // 'ТП-1, Ф-2' -> ищем узел с именем Ф-2 внутри ТП-1
+    const parts = o.object.split(',').map((s) => s.trim())
+    const tpNode = tree.children.find((t) => t.name === parts[0])
+    const leafName = parts[1] ?? parts[0]
+    const key = tpNode && parts[1]
+      ? tpNode.children.find((c) => c.name === leafName)?.id ?? tpNode.id
+      : tree.id
+    alarmByLeaf[key] = (alarmByLeaf[key] ?? 0) + o.alarms
+  }
+  const maxAlarms = Math.max(1, ...Object.values(alarmByLeaf))
+
+  /** Цвет «теплоты» узла: 0 алармов — зелёный, больше — от жёлтого к красному. */
+  function heatColor(alarms: number): string {
+    if (alarms === 0) return '#e8f5e9'
+    const t = Math.min(alarms / maxAlarms, 1)
+    // интерполяция жёлтый (255,235,59) -> красный (244,67,54)
+    const r = 255
+    const g = Math.round(235 - t * (235 - 67))
+    const b = Math.round(59 + t * (54 - 59))
+    return `rgb(${r},${g},${b})`
+  }
+
   return (
-    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: 8 }}>
-      {tree.children.map((tp) => {
+    <div>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: 8 }}>
+        {tree.children.map((tp) => {
         // Агрегация «снизу вверх»: статус ТП = худший статус её объектов
         const tpKeys = Object.keys(live ?? {}).filter((k) => k.startsWith(`${tp.id}_`))
         const hasFault = tpKeys.some((k) => k.endsWith(':FAULT') && (live![k]?.value ?? 0) !== 0)
@@ -131,7 +163,59 @@ function FactoryLevel({ tree, live, onOpenTp, onTpContextMenu }: {
             <div style={{ marginTop: 10, color: '#4d9fff', fontSize: 13 }}>Открыть схему →</div>
           </div>
         )
-      })}
+        })}
+      </div>
+
+      {/* ---------- Тепловая карта аварий по объектам (специф §16) ---------- */}
+      <div className="card" style={{ marginTop: 16, padding: 14 }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>
+          Тепловая карта аварий (за час) — клик по объекту открывает его схему
+        </div>
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          {tree.children.map((tp) => (
+            <div key={tp.id}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#556', marginBottom: 4 }}>{tp.name}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 86px)', gap: 4 }}>
+                {tp.children.filter((c) => c.kind !== 'bus').map((c) => {
+                  const alarms = alarmByLeaf[c.id] ?? 0
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => onOpenTp(tp)}
+                      title={`${tp.name}, ${c.name}: ${alarms} алармов за час`}
+                      style={{
+                        background: heatColor(alarms),
+                        border: '1px solid #bbb', borderRadius: 6,
+                        padding: '6px 4px', fontSize: 11, textAlign: 'center',
+                        cursor: 'pointer', color: alarms > 0 ? '#7a0000' : '#345',
+                        fontWeight: alarms > 0 ? 700 : 400,
+                      }}
+                    >
+                      {c.name}
+                      {alarms > 0 && <div style={{ fontSize: 13 }}>{alarms}⚡</div>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {/* Легенда */}
+          <div style={{ fontSize: 11, color: '#667', alignSelf: 'end' }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
+              <span style={{ width: 14, height: 14, background: '#e8f5e9', border: '1px solid #bbb', borderRadius: 3, display: 'inline-block' }} />
+              нет алармов
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
+              <span style={{ width: 14, height: 14, background: 'rgb(255,151,38)', border: '1px solid #bbb', borderRadius: 3, display: 'inline-block' }} />
+              мало
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ width: 14, height: 14, background: 'rgb(255,67,54)', border: '1px solid #bbb', borderRadius: 3, display: 'inline-block' }} />
+              много ({maxAlarms} макс)
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
