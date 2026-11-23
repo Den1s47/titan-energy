@@ -2,10 +2,13 @@
 // - порядок: неквитированные сверху по приоритету, потом квитированные;
 // - мигание неквитированных critical/high до квитирования;
 // - поля: время (мс), приоритет цветом, объект, описание, значение/уставка;
-// - кнопка «Подтвердить» — dispatcher+.
+// - кнопка «Подтвердить» — dispatcher+;
+// - клик по объекту в строке — переход к месту аварии на мнемосхеме (специф §16:
+//   «ТП-1, Ф-2» -> /?obj=tp1_f2 — мнемосхема раскроет нужный уровень).
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type EventRow } from '../api'
+import { useNavigate } from 'react-router-dom'
+import { api, type EventRow, type FactoryTree } from '../api'
 import { useAuth } from '../authStore'
 import ErrorBoundary from '../ErrorBoundary'
 
@@ -14,6 +17,26 @@ const PRIO_WEIGHT: Record<string, number> = { critical: 0, high: 1, low: 2, info
 
 function fmtTime(iso: string) {
   return iso.slice(11, 23)
+}
+
+/**
+ * Имя объекта события («ТП-1, Ф-2») -> id узла дерева ('tp1_f2').
+ * Сопоставление по справочнику дерева, загруженного заранее; если объект
+ * не найден (событие старого формата) — возвращаем null (перехода нет).
+ */
+export function objectIdFromName(name: string, tree: FactoryTree | undefined): string | null {
+  if (!tree || !name) return null
+  // Ищем конечный узел, чьё «полное имя» (родитель + узел) совпадает
+  const walk = (n: FactoryTree, parentName: string | null): string | null => {
+    const full = parentName ? `${parentName}, ${n.name}` : n.name
+    if (full === name) return n.id
+    for (const c of n.children) {
+      const found = walk(c, n.id === 'factory' ? null : n.name)
+      if (found) return found
+    }
+    return null
+  }
+  return walk(tree, null)
 }
 
 // ErrorBoundary вокруг аларм-бара: его падение не должно уносить страницы
@@ -29,6 +52,20 @@ function AlarmBarInner() {
   const role = useAuth((s) => s.user?.role)
   const canAck = role === 'dispatcher' || role === 'admin'
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+
+  // Дерево завода — для преобразования «ТП-1, Ф-2» -> id объекта при переходе
+  const { data: tree } = useQuery({
+    queryKey: ['objectsTree'],
+    queryFn: api.objectsTree,
+    staleTime: Infinity,
+  })
+
+  // Переход к месту аварии: мнемосхема с параметром ?obj=<id> раскрывает уровень
+  function goToObject(name: string) {
+    const id = objectIdFromName(name, tree)
+    if (id) navigate(`/?obj=${id}`)
+  }
 
   // Неквитированные события — обновление раз в 1 с (аларм-бар должен быть мгновенным)
   const { data: unacked } = useQuery({
@@ -72,7 +109,13 @@ function AlarmBarInner() {
                 </span>
               </td>
               <td style={{ width: 110 }}>{fmtTime(e.time)}</td>
-              <td style={{ width: 80 }}>{e.object}</td>
+              <td
+                style={{ width: 80, cursor: 'pointer', color: '#4d9fff', textDecoration: 'underline' }}
+                title="Перейти к месту аварии на мнемосхеме"
+                onClick={() => goToObject(e.object)}
+              >
+                {e.object}
+              </td>
               <td>{e.message}</td>
               <td style={{ width: 140 }}>
                 {e.value != null && `знач.: ${e.value.toFixed(1)}`}

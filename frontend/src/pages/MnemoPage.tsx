@@ -14,11 +14,13 @@
 //   аппараты: вкл — зелёный квадрат; откл — пустой; местное — «Р»;
 //     неопределённое — оранжевый; аварийное — мигающий красный.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { api, type FactoryTree, type LivePoint } from '../api'
 import { useAuth } from '../authStore'
 import TuDialog from './TuDialog'
+import { FaultContextMenu } from './FaultContextMenu'
 
 // ---------- Хелперы индикации (общие для всех уровней) ----------
 
@@ -71,10 +73,11 @@ const FAULT_LABELS: Record<number, string> = {
 // ============================================================
 // УРОВЕНЬ 0: ЗАВОД (обзорные плитки обеих ТП)
 // ============================================================
-function FactoryLevel({ tree, live, onOpenTp }: {
+function FactoryLevel({ tree, live, onOpenTp, onTpContextMenu }: {
   tree: FactoryTree
   live: Record<string, LivePoint> | undefined
   onOpenTp: (tp: FactoryTree) => void
+  onTpContextMenu: (e: React.MouseEvent, tp: FactoryTree) => void
 }) {
   return (
     <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: 8 }}>
@@ -95,6 +98,7 @@ function FactoryLevel({ tree, live, onOpenTp }: {
           <div
             key={tp.id}
             onClick={() => onOpenTp(tp)}
+            onContextMenu={(e) => onTpContextMenu(e, tp)}
             style={{
               cursor: 'pointer', minWidth: 260, padding: '16px 20px',
               background: '#fff', borderRadius: 10,
@@ -135,13 +139,14 @@ function FactoryLevel({ tree, live, onOpenTp }: {
 // ============================================================
 // УРОВЕНЬ 1: ТП (однолинейная схема с per-object значениями)
 // ============================================================
-function TpLevel({ tp, live, onOpenObject, canTu, onTu, selectedId }: {
+function TpLevel({ tp, live, onOpenObject, canTu, onTu, selectedId, onObjContextMenu }: {
   tp: FactoryTree
   live: Record<string, LivePoint> | undefined
   onOpenObject: (obj: FactoryTree) => void
   canTu: boolean
   onTu: (obj: FactoryTree) => void
   selectedId: string | null
+  onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
 }) {
   const incomerId = `${tp.id}_incomer`
   const breaker = val(live, incomerId, 'BREAKER')
@@ -186,7 +191,11 @@ function TpLevel({ tp, live, onOpenObject, canTu, onTu, selectedId }: {
           style={{ cursor: 'pointer' }}
           pointerEvents="bounding-box"
           onClick={() => onOpenObject(tp.children.find((c) => c.kind === 'incomer')!)}
-          onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(tp.children.find((c) => c.kind === 'incomer')!) }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            if (canTu) onTu(tp.children.find((c) => c.kind === 'incomer')!)
+            onObjContextMenu(e, tp.children.find((c) => c.kind === 'incomer')!)
+          }}
         >
           <rect
             x={368} y={122} width={24} height={24}
@@ -217,6 +226,7 @@ function TpLevel({ tp, live, onOpenObject, canTu, onTu, selectedId }: {
               style={{ cursor: 'pointer' }}
               pointerEvents="bounding-box"
               onClick={() => onOpenObject(f)}
+              onContextMenu={(e) => onObjContextMenu(e, f)}
             >
               <rect
                 x={x - 12} y={158} width={24} height={24}
@@ -350,6 +360,8 @@ function ObjectLevel({ tp, obj, live }: {
 export default function MnemoPage() {
   const role = useAuth((s) => s.user?.role)
   const canTu = role === 'dispatcher' || role === 'admin'
+  const isAdmin = role === 'admin'
+  const [searchParams] = useSearchParams()
 
   // Телеметрия 1 Гц
   const { data: live } = useQuery({
@@ -372,6 +384,40 @@ export default function MnemoPage() {
   // Диалог ТУ
   const [tuOpen, setTuOpen] = useState(false)
   const [tuObject, setTuObject] = useState('Ввод')
+
+  // ПКМ-меню «Создать аварию» (координаты курсора + объект)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; obj: FactoryTree } | null>(null)
+
+  // Переход из аларм-бара: /?obj=tp1_f2 — раскрываем уровень объекта.
+  // Эффект срабатывает один на изменение параметра.
+  useEffect(() => {
+    const objId = searchParams.get('obj')
+    if (!objId || !tree) return
+    // Находим объект и его ТП в дереве
+    const findWithTp = (node: FactoryTree, tp: FactoryTree | null): { obj: FactoryTree; tp: FactoryTree } | null => {
+      for (const child of node.children) {
+        const curTp = child.kind === 'group' && child.id !== 'factory' ? child : tp
+        if (child.id === objId) return { obj: child, tp: curTp! }
+        const deeper = findWithTp(child, curTp)
+        if (deeper) return deeper
+      }
+      return null
+    }
+    const found = findWithTp(tree, null)
+    if (found) {
+      // Если конечный объект — уровень 2, если ТП — уровень 1
+      if (found.obj.kind === 'group') setLevel({ kind: 'tp', tp: found.obj })
+      else setLevel({ kind: 'object', tp: found.tp, obj: found.obj })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tree])
+
+  // Универсальный обработчик ПКМ по объекту (admin): открыть меню аварии
+  function onObjectContextMenu(e: React.MouseEvent, obj: FactoryTree) {
+    if (!isAdmin) return
+    e.preventDefault()
+    setCtxMenu({ x: e.clientX, y: e.clientY, obj })
+  }
 
   // Хлебные крошки: Завод → ТП-1 → Ф-2
   const crumbs: Array<{ label: string; go: () => void }> = [
@@ -421,7 +467,12 @@ export default function MnemoPage() {
 
       {/* ---------- Уровни ---------- */}
       {level.kind === 'factory' && (
-        <FactoryLevel tree={tree} live={live} onOpenTp={(tp) => setLevel({ kind: 'tp', tp })} />
+        <FactoryLevel
+          tree={tree}
+          live={live}
+          onOpenTp={(tp) => setLevel({ kind: 'tp', tp })}
+          onTpContextMenu={onObjectContextMenu}
+        />
       )}
       {level.kind === 'tp' && (
         <TpLevel
@@ -431,10 +482,22 @@ export default function MnemoPage() {
           selectedId={selectedId}
           onOpenObject={(obj) => setLevel({ kind: 'object', tp: level.tp, obj })}
           onTu={(obj) => { setTuObject(obj.name); setSelectedId(obj.id); setTuOpen(true) }}
+          onObjContextMenu={onObjectContextMenu}
         />
       )}
       {level.kind === 'object' && (
         <ObjectLevel tp={level.tp} obj={level.obj} live={live} />
+      )}
+
+      {/* ПКМ-меню «Создать аварию» (admin, специф §16) */}
+      {ctxMenu && (
+        <FaultContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          objectId={ctxMenu.obj.id}
+          objectName={ctxMenu.obj.name}
+          onClose={() => setCtxMenu(null)}
+        />
       )}
 
       {/* Диалог ТУ (двухшаговый алгоритм) */}
