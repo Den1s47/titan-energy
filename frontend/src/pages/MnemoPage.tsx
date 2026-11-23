@@ -90,16 +90,11 @@ function objShortName(obj: FactoryTree): string {
   return obj.name
 }
 
-// ============================================================
-// УРОВЕНЬ 0: ОБЗОР ПС (плитки плеч/секций + тепловая карта)
-// ============================================================
-function PsOverview({ tree, live, onOpenPs, onObjContextMenu }: {
+/** Компактная тепловая карта аварий по фидерам (полоса над схемой). */
+function HeatStrip({ tree, onOpenObject }: {
   tree: FactoryTree
-  live: Record<string, LivePoint> | undefined
-  onOpenPs: () => void
-  onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
+  onOpenObject: (obj: FactoryTree) => void
 }) {
-  // Тепловая карта: алармы по объектам за час (обновление 5 с)
   const { data: stats } = useQuery({
     queryKey: ['alarmStats'],
     queryFn: () => api.alarmStats(60),
@@ -107,138 +102,47 @@ function PsOverview({ tree, live, onOpenPs, onObjContextMenu }: {
   })
   const alarmByLeaf: Record<string, number> = {}
   for (const o of stats?.objects ?? []) {
-    // «Секция I, 10 кВ, Ф-2» -> ищем узел Ф-2 внутри секции I
     const leaf = o.object.split(',').map((s) => s.trim()).pop() ?? o.object
-    for (const node of tree.children) {
-      const hit = node.children.find((c) => c.name === leaf)
-      if (hit) { alarmByLeaf[hit.id] = (alarmByLeaf[hit.id] ?? 0) + o.alarms; break }
-      const hit2 = node.children.flatMap((c) => c.children).find((c) => c.name === leaf)
-      if (hit2) { alarmByLeaf[hit2.id] = (alarmByLeaf[hit2.id] ?? 0) + o.alarms; break }
+    for (const sec of tree.children.filter((c) => c.feeders)) {
+      const hit = sec.children.find((c) => c.name === leaf)
+      if (hit) { alarmByLeaf[hit.id] = (alarmByLeaf[hit.id] ?? 0) + o.alarms }
     }
   }
-  const maxAlarms = Math.max(1, ...Object.values(alarmByLeaf))
-  function heatColor(alarms: number): string {
-    if (alarms === 0) return '#e8f5e9'
-    const t = Math.min(alarms / maxAlarms, 1)
+  const max = Math.max(1, ...Object.values(alarmByLeaf))
+  function heat(a: number): string {
+    if (a === 0) return '#e8f5e9'
+    const t = Math.min(a / max, 1)
     return `rgb(255,${Math.round(235 - t * 168)},${Math.round(59 - t * 5)})`
   }
-
-  const tiles = tree.children.filter((c) => c.id !== 'sec_qf')
-  const sectional = tree.children.find((c) => c.id === 'sec_qf')!
-
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', padding: 8 }}>
-        {tiles.map((node) => {
-          const tpKeys = Object.keys(live ?? {}).filter((k) => k.startsWith(`${node.id}`))
-          const hasFault = tpKeys.some((k) => k.endsWith(':FAULT') && (live![k]?.value ?? 0) !== 0)
-          const hasSuspect = tpKeys.some((k) => !k.endsWith(':FAULT') && live![k]?.quality !== 'good')
-          const borderColor = hasFault ? '#ff4444' : hasSuspect ? '#ff9f2e' : '#35c46a'
-          const incomer = node.kind === 'group' ? `${node.id}_incomer` : null
-          const p = incomer ? val(live, incomer, 'P') : 0
-          const u = incomer ? val(live, incomer, 'U') : 0
-          return (
-            <div
-              key={node.id}
-              onClick={onOpenPs}
-              onContextMenu={(e) => onObjContextMenu(e, node)}
-              style={{
-                cursor: 'pointer', minWidth: 230, padding: '14px 18px',
-                background: '#fff', borderRadius: 10,
-                border: `2px solid ${borderColor}`,
-                boxShadow: hasFault ? '0 0 12px rgba(255,68,68,.5)' : 'none',
-              }}
-              title="ЛКМ — открыть полную схему ПС"
-            >
-              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>{node.name}</div>
-              {hasFault && <div style={{ color: '#ff4444', fontWeight: 700 }} className="mnemo-blink">⚡ АВАРИЯ</div>}
-              {hasSuspect && !hasFault && <div style={{ color: '#ff9f2e', fontWeight: 700 }}>⚠️ Отклонения</div>}
-              {!hasFault && !hasSuspect && (
-                <div style={{ color: '#35c46a', fontWeight: 600 }}>
-                  {incomer && val(live, incomer, 'BREAKER') === 1 ? '● В работе' : '○ Обесточено'}
-                </div>
-              )}
-              {incomer && (
-                <div style={{ marginTop: 6, fontSize: 13, color: '#444' }}>
-                  P: <b>{Math.round(p)}</b> кВт · U: <b>{Math.round(u)}</b> В
-                </div>
-              )}
-              {node.feeders && (
-                <div style={{ marginTop: 4, fontSize: 12, color: '#667' }}>
-                  Фидеры: {node.feeders.join(', ')}
-                </div>
-              )}
-            </div>
-          )
-        })}
-        {/* Плитка секционного QF */}
-        <div
-          onContextMenu={(e) => onObjContextMenu(e, sectional)}
-          style={{
-            minWidth: 200, padding: '14px 18px', background: '#fff',
-            borderRadius: 10, border: '2px solid #999',
-          }}
-        >
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Секционный QF</div>
-          <div style={{ fontSize: 14, color: '#444' }}>
-            Состояние:{' '}
-            <b style={{ color: val(live, 'sec_qf', 'BREAKER') === 1 ? '#35c46a' : '#888' }}>
-              {val(live, 'sec_qf', 'BREAKER') === 1 ? 'ВКЛЮЧЕН (переброс)' : 'отключён (норма)'}
-            </b>
-          </div>
+    <div className="card" style={{ marginBottom: 12, padding: '8px 12px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+      <b style={{ fontSize: 13 }}>Аварии за час:</b>
+      {tree.children.filter((c) => c.feeders).map((sec) => (
+        <div key={sec.id} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#556', marginRight: 2 }}>{sec.name.replace(', 10 кВ', '')}:</span>
+          {sec.children.map((f) => {
+            const a = alarmByLeaf[f.id] ?? 0
+            return (
+              <span
+                key={f.id}
+                onClick={() => onOpenObject(f)}
+                title={`${sec.name}, ${f.name}: ${a} алармов`}
+                style={{
+                  background: heat(a), border: '1px solid #bbb', borderRadius: 4,
+                  padding: '2px 7px', fontSize: 11, cursor: 'pointer',
+                  color: a > 0 ? '#7a0000' : '#345', fontWeight: a > 0 ? 700 : 400,
+                }}
+              >
+                {f.name}{a > 0 ? ` ⚡${a}` : ''}
+              </span>
+            )
+          })}
         </div>
-      </div>
-
-      {/* Тепловая карта аварий по фидерам обеих секций */}
-      <div className="card" style={{ marginTop: 16, padding: 14 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>
-          Тепловая карта аварий (за час)
-        </div>
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          {tree.children.filter((c) => c.feeders).map((sec) => (
-            <div key={sec.id}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#556', marginBottom: 4 }}>{sec.name}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 86px)', gap: 4 }}>
-                {sec.children.map((f) => {
-                  const alarms = alarmByLeaf[f.id] ?? 0
-                  return (
-                    <div
-                      key={f.id}
-                      onClick={onOpenPs}
-                      title={`${sec.name}, ${f.name}: ${alarms} алармов за час`}
-                      style={{
-                        background: heatColor(alarms),
-                        border: '1px solid #bbb', borderRadius: 6,
-                        padding: '6px 4px', fontSize: 11, textAlign: 'center',
-                        cursor: 'pointer', color: alarms > 0 ? '#7a0000' : '#345',
-                        fontWeight: alarms > 0 ? 700 : 400,
-                      }}
-                    >
-                      {f.name}
-                      {alarms > 0 && <div style={{ fontSize: 13 }}>{alarms}⚡</div>}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-          <div style={{ fontSize: 11, color: '#667', alignSelf: 'end' }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 3 }}>
-              <span style={{ width: 14, height: 14, background: '#e8f5e9', border: '1px solid #bbb', borderRadius: 3, display: 'inline-block' }} />
-              нет алармов
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ width: 14, height: 14, background: 'rgb(255,67,54)', border: '1px solid #bbb', borderRadius: 3, display: 'inline-block' }} />
-              много ({maxAlarms} макс)
-            </div>
-          </div>
-        </div>
-      </div>
+      ))}
     </div>
   )
 }
 
-// ============================================================
 // УРОВЕНЬ 1: ПОЛНАЯ ОДНОЛИНЕЙНАЯ СХЕМА ПС (как рисунок из docx)
 // ============================================================
 function PsScheme({ tree, live, onOpenObject, canTu, onTu, selectedId, onObjContextMenu }: {
@@ -291,7 +195,9 @@ function PsScheme({ tree, live, onOpenObject, canTu, onTu, selectedId, onObjCont
   }
 
   return (
-    <div className="card" style={{ background: '#e8eaed' }}>
+    <div>
+      <HeatStrip tree={tree} onOpenObject={onOpenObject} />
+      <div className="card" style={{ background: '#e8eaed' }}>
       <svg viewBox="0 0 900 460" style={{ width: '100%', display: 'block' }}>
         {/* --- Заголовки вводов 110 кВ --- */}
         <text x={150} y={30} fontSize={14} fontWeight="bold" fill="#333" textAnchor="middle">Ввод 110 кВ №1</text>
@@ -430,6 +336,7 @@ function PsScheme({ tree, live, onOpenObject, canTu, onTu, selectedId, onObjCont
           </text>
         )}
       </svg>
+      </div>
     </div>
   )
 }
@@ -533,7 +440,7 @@ export default function MnemoPage() {
     staleTime: Infinity,
   })
 
-  const [level, setLevel] = useState<Level>({ kind: 'factory' })
+  const [level, setLevel] = useState<Level>({ kind: 'ps' })   // СРАЗУ полная схема
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tuOpen, setTuOpen] = useState(false)
   const [tuObject, setTuObject] = useState('Секционный QF')
@@ -555,7 +462,7 @@ export default function MnemoPage() {
   }
 
   const crumbs: Array<{ label: string; go: () => void }> = [
-    { label: 'ПС 110/10', go: () => setLevel({ kind: 'factory' }) },
+    { label: 'ПС 110/10', go: () => setLevel({ kind: 'ps' }) },
   ]
   if (level.kind === 'ps') {
     crumbs.push({ label: 'Схема ПС', go: () => {} })
@@ -593,14 +500,10 @@ export default function MnemoPage() {
       </div>
 
       <div className="muted" style={{ marginBottom: 8 }}>
-        {level.kind === 'factory' && 'Обзор подстанции. ЛКМ по любой плитке — полная однолинейная схема.'}
-        {level.kind === 'ps' && 'Схема ПС. ЛКМ по объекту — детали; ' + (canTu ? 'ПКМ по выключателю — телеуправление.' : 'ТУ доступно роли dispatcher+.')}
-        {level.kind === 'object' && `Детали объекта «${objShortName(level.obj)}».`}
+        {level.kind === 'ps' && 'Схема ПС 110/10 кВ. ЛКМ по объекту — детали; ' + (canTu ? 'ПКМ по выключателю — телеуправление.' : 'ТУ доступно роли dispatcher+.')}
+        {level.kind === 'object' && `Детали объекта «${objShortName(level.obj)}». Кнопка «ПС 110/10» вверху — вернуться к схеме.`}
       </div>
 
-      {level.kind === 'factory' && (
-        <PsOverview tree={tree} live={live} onOpenPs={() => setLevel({ kind: 'ps' })} onObjContextMenu={onObjectContextMenu} />
-      )}
       {level.kind === 'ps' && (
         <PsScheme
           tree={tree}

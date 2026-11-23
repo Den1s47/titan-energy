@@ -35,3 +35,9 @@ packages = ["titan"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 # Изоляция БД тестов включается в tests/conftest.py (TITAN_TEST_DB=1)
+#
+# ПРОВЕРЕННЫЙ СПОСОБ ЗАПУСКА (см. docs/README.md): полный прогон одной
+# командой медленный из-за пересечения event loop'ов на стыке файлов —
+# гнать ДВУМЯ командами (все зелёные, ~30 с суммарно):
+#   uv run pytest tests/test_api.py tests/test_collector.py tests/test_factory.py tests/test_m1_db.py -q
+#   uv run pytest tests/test_m2_auth.py tests/test_m4_tu.py tests/test_m5_analytics.py tests/test_m6_backup.py tests/test_simulator.py -q

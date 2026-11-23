@@ -37,16 +37,25 @@ def _ensure_engine():
     """
     global engine, sessionmaker
     if engine is None:
-        # Для SQLite — NullPool: pytest-asyncio создаёт НОВЫЙ event loop на
-        # каждый тест, а соединения aiosqlite привязаны к loop'у. Пул бы
-        # отдавал «чужое» соединение → зависание await навсегда. NullPool
-        # открывает свежее соединение на каждую сессию (для тестов — идеально).
-        from sqlalchemy.pool import NullPool
+        from sqlalchemy.pool import NullPool, StaticPool
         kwargs = dict(_engine_kwargs)
+        connect_args = dict(_connect_args)
         if settings.database_url.startswith("sqlite"):
-            kwargs["poolclass"] = NullPool
+            if "mode=memory" in settings.database_url:
+                # in-memory shared cache: NullPool с общим кэшем — каждая сессия
+                # открывает свой коннект к ОДНОЙ памяти (база общая!), и нет
+                # «cannot commit — statements in progress» (StaticPool держит
+                # один коннект, параллельные сессии на нём конфликтуют).
+                kwargs["poolclass"] = NullPool
+                connect_args["check_same_thread"] = False
+                connect_args["uri"] = True
+            else:
+                # Файловая SQLite: NullPool — свежее соединение на сессию
+                # (pytest-asyncio меняет event loop между тестами, «чужой»
+                # коннект из пула зависает навсегда).
+                kwargs["poolclass"] = NullPool
         engine = create_async_engine(
-            settings.database_url, connect_args=_connect_args, **kwargs
+            settings.database_url, connect_args=connect_args, **kwargs
         )
         sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
 

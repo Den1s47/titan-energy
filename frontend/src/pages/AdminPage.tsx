@@ -109,6 +109,34 @@ export default function AdminPage() {
         {createError && <div className="error-msg">{createError}</div>}
       </div>
 
+      {/* ---------- Аудит входов (кто/когда входил, неудачные попытки) ---------- */}
+      <div className="card">
+        <h3>Аудит входов в систему (последние 20)</h3>
+        <table>
+          <thead>
+            <tr><th>Время</th><th>Кто</th><th>Результат</th><th>Детали</th></tr>
+          </thead>
+          <tbody>
+            {actionsQuery.data?.actions
+              .filter((a) => a.action === 'login')
+              .slice(0, 20)
+              .map((a, i) => (
+                <tr key={`l${i}`} style={a.result === 'failed' ? { background: '#fff2f0' } : undefined}>
+                  <td>{a.time.slice(11, 23)}</td>
+                  <td><b>{a.username}</b></td>
+                  <td className={a.result === 'success' ? 'ok-msg' : 'error-msg'}>
+                    {a.result === 'success' ? '✓ вход' : '✗ отказ'}
+                  </td>
+                  <td className="muted">{a.details ?? (a.result === 'success' ? 'успешный вход' : '')}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+        <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+          Все входы (успешные и неудачные) логируются автоматически — специф §11 «Аудит».
+        </div>
+      </div>
+
       {/* ---------- Журнал действий ---------- */}
       <div className="card">
         <h3>Журнал действий операторов (последние)</h3>

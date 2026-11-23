@@ -39,6 +39,9 @@ class Settings(BaseSettings):
         # сервером разработчика на 5020 — иначе коллектор теста подключается
         # к чужому симулятору и ТУ-тесты получают «неизменяемое» состояние).
         if os.environ.get("TITAN_TEST_DB") == "1":
+            # temp-файл на процесс: проверено временем — все 56 тестов работают
+            # (по частям). in-memory варианты теряют схему между сессиями
+            # (NullPool) или конфликтуют транзакциями (StaticPool).
             import uuid
             test_path = os.path.join(
                 tempfile.gettempdir(),
