@@ -27,9 +27,9 @@ async def test_tu_select_requires_dispatcher(client):
     token = await login(client)
     h = auth(token)
     await client.post("/api/admin/users", headers=h,
-                      json={"username": "v1", "password": "pw", "role": "viewer"})
+                      json={"username": "v1", "password": "pw1234", "role": "viewer"})
     vtok = (await client.post("/api/auth/login",
-            json={"username": "v1", "password": "pw"})).json()["access_token"]
+            json={"username": "v1", "password": "pw1234"})).json()["access_token"]
     r = await client.post("/api/commands/select", headers=auth(vtok),
                           json={"object_name": "Ввод 10 кВ №1", "action": "open"})
     assert r.status_code == 403

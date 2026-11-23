@@ -105,6 +105,16 @@ async def select_operation(body: SelectRequest,
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             "action must be 'close' or 'open'")
 
+    # Валидация объекта: ТУ доступно только на управляемые аппараты
+    # (вводы 10 кВ и секционный QF). Неизвестное имя -> 404.
+    TU_OBJECTS = {"Ввод 10 кВ №1", "Ввод 10 кВ №2", "Секционный QF"}
+    if body.object_name not in TU_OBJECTS:
+        await log_action(sessionmaker, user["username"], "tu_select", "failed",
+                         object_name=body.object_name,
+                         details=f"неизвестный объект ТУ: {body.object_name}")
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail=f"Объект «{body.object_name}» не является управляемым (нет ТУ)")
+
     lock_reason = _check_interlocks(body.object_name, body.action, _collector.live)
     if lock_reason:
         # Аудит: отказ из-за блокировки (специф §7.6)

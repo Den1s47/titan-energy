@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 
@@ -162,7 +162,8 @@ async def history(point_code: str, minutes: float = 15.0,
 
 
 @app.get("/api/events")
-async def events(cls: str | None = None, acked: bool | None = None, limit: int = 200,
+async def events(cls: str | None = None, acked: bool | None = None,
+                 limit: int = Query(200, ge=1, le=2000),
                  user: dict = Depends(require_role("viewer"))) -> dict:
     """Журнал событий (специф §10: GET /events).
 

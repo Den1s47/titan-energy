@@ -103,6 +103,14 @@ async def create_user(body: UserCreate, admin: dict = Depends(require_role("admi
     if body.role not in VALID_ROLES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
                             f"role must be one of {sorted(VALID_ROLES)}")
+    # Валидация имени: не пустое, без пробелов, разумная длина (специф §11)
+    username = (body.username or "").strip()
+    if not username or len(username) > 64 or any(ch.isspace() for ch in username):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "username: непустое, без пробелов, до 64 символов")
+    if not body.password or len(body.password) < 4:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "password: минимум 4 символа")
     async with sessionmaker() as session:
         exists = await session.execute(select(User).where(User.username == body.username))
         if exists.scalar_one_or_none():

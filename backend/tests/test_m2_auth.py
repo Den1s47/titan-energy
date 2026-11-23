@@ -106,14 +106,14 @@ async def test_viewer_cannot_ack_but_dispatcher_can(client):
                           json={"username": "admin", "password": "admin"})
     admin_token = r.json()["access_token"]
     await client.post("/api/admin/users", headers=auth(admin_token),
-                      json={"username": "disp2", "password": "pw", "role": "dispatcher"})
+                      json={"username": "disp2", "password": "pw1234", "role": "dispatcher"})
     await client.post("/api/admin/users", headers=auth(admin_token),
-                      json={"username": "view1", "password": "pw", "role": "viewer"})
+                      json={"username": "view1", "password": "pw1234", "role": "viewer"})
 
     tok_disp = (await client.post("/api/auth/login",
-                json={"username": "disp2", "password": "pw"})).json()["access_token"]
+                json={"username": "disp2", "password": "pw1234"})).json()["access_token"]
     tok_view = (await client.post("/api/auth/login",
-                json={"username": "view1", "password": "pw"})).json()["access_token"]
+                json={"username": "view1", "password": "pw1234"})).json()["access_token"]
 
     # viewer не может квитировать
     r = await client.post("/api/events/1/ack", headers=auth(tok_view))
@@ -133,14 +133,14 @@ async def test_user_crud_and_protections(client):
 
     # дубль имени -> 409
     await client.post("/api/admin/users", headers=h,
-                      json={"username": "u1", "password": "pw", "role": "viewer"})
+                      json={"username": "u1", "password": "pw1234", "role": "viewer"})
     r = await client.post("/api/admin/users", headers=h,
-                          json={"username": "u1", "password": "pw", "role": "viewer"})
+                          json={"username": "u1", "password": "pw1234", "role": "viewer"})
     assert r.status_code == 409
 
     # недопустимая роль -> 422
     r = await client.post("/api/admin/users", headers=h,
-                          json={"username": "u2", "password": "pw", "role": "boss"})
+                          json={"username": "u2", "password": "pw1234", "role": "boss"})
     assert r.status_code == 422
 
     # админ не может деактивировать себя -> 409
@@ -154,7 +154,7 @@ async def test_user_crud_and_protections(client):
     u1_row = next(u for u in admin_id if u["username"] == "u1")
     await client.patch(f"/api/admin/users/{u1_row['id']}", headers=h,
                        json={"is_active": False})
-    r = await client.post("/api/auth/login", json={"username": "u1", "password": "pw"})
+    r = await client.post("/api/auth/login", json={"username": "u1", "password": "pw1234"})
     assert r.status_code == 401
 
 
