@@ -1,0 +1,36 @@
+[project]
+name = "titan"
+version = "0.1.0"
+description = "ПАК «Титан-Энергия» (EMS) — MVP: SCADA-уровень сбора данных и MES-уровень аналитики"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
+    "pymodbus==3.9.2",
+    "passlib[bcrypt]>=1.7",
+    "pyjwt>=2.8",
+    "openpyxl>=3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["titan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Изоляция БД тестов включается в tests/conftest.py (TITAN_TEST_DB=1)

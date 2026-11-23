@@ -1,0 +1,167 @@
+/* Единые стили приложения. Тёмная тема каркаса; данные с quality-флагами */
+/* подсвечиваются по ТЗ: good — зелёный, suspect — оранжевый + рамка, bad — красный. */
+
+:root {
+  --bg: #1b1e23;          /* фон каркаса */
+  --panel: #24282f;       /* панели */
+  --border: #363b44;
+  --text: #d7dae0;
+  --muted: #8b93a0;
+  --accent: #4d9fff;      /* синий акцент (кнопки, ссылки) */
+  --good: #35c46a;        /* good-значения */
+  --warn: #ff9f2e;        /* suspect — оранжевый (ТЗ: оранжевые + ⚠️) */
+  --bad: #ff4444;         /* bad / critical */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root { min-height: 100vh; }
+
+/* ---------- Каркас ---------- */
+
+.layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: 220px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar .brand {
+  font-weight: 700;
+  font-size: 15px;
+  padding: 8px 10px 16px;
+  color: var(--accent);
+}
+
+.nav-link {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.nav-link:hover { background: rgba(255, 255, 255, 0.06); }
+.nav-link.active { background: var(--accent); color: #fff; }
+
+.sidebar .spacer { flex: 1; }
+
+.user-box {
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
+}
+.user-box b { color: var(--text); display: block; }
+
+.content { flex: 1; padding: 24px; max-width: 1100px; }
+
+h2 { margin-top: 0; font-size: 20px; }
+h3 { font-size: 16px; color: var(--muted); }
+
+/* ---------- Компоненты ---------- */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn.secondary { background: #3a4150; }
+.btn.danger { background: var(--bad); }
+.btn.warn { background: var(--warn); color: #222; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+input, select {
+  background: #1e2228;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+input:focus, select:focus { outline: 1px solid var(--accent); }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+
+.error-msg { color: var(--bad); font-size: 14px; margin-top: 8px; }
+.ok-msg { color: var(--good); font-size: 14px; margin-top: 8px; }
+.muted { color: var(--muted); font-size: 13px; }
+
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* ---------- Логин ---------- */
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-card {
+  width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-card h1 { font-size: 18px; margin: 0 0 6px; color: var(--accent); }
+.login-card input { width: 100%; }
+
+/* ---------- Телеметрия (плитки) ---------- */
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+
+.tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+}
+.tile .label { color: var(--muted); font-size: 13px; }
+.tile .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.tile .unit { font-size: 14px; color: var(--muted); font-weight: 400; }
+.tile.q-good .value { color: var(--good); }
+.tile.q-suspect { border-color: var(--warn); }
+.tile.q-suspect .value { color: var(--warn); }
+.tile.q-bad { border-color: var(--bad); }
+.tile.q-bad .value { color: var(--bad); }
+
+/* ---------- События (журналы) ---------- */
+
+.prio-critical { color: var(--bad); font-weight: 700; }
+.prio-high { color: var(--warn); font-weight: 600; }
+.prio-low, .prio-info { color: var(--muted); }
+tr.unacked-critical td { background: rgba(255, 68, 68, 0.08); }
+
+@keyframes mnemo-blink-inline { 50% { opacity: 0.3; } }
+.mnemo-blink-inline { animation: mnemo-blink-inline 0.8s step-start infinite; }

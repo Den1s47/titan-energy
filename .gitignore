@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# База данных и бэкапы (данные не в git)
+backend/titan.db
+backend/titan.db-wal
+backend/titan.db-shm
+backend/backups/
+
+# Секреты (специф §11)
+backend/.env
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
