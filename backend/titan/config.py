@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     # Приложение
     app_name: str = "Титан-Энергия EMS"
 
-    # База данных. MVP-старт: SQLite (файл рядом с проектом).
-    # Прод-цель: PostgreSQL+TimescaleDB — меняется ТОЛЬКО эта строка (специф §2.3).
-    database_url: str = "sqlite+aiosqlite:///./titan.db"
+    # База данных. Прод: PostgreSQL 16.10 (пароль в .env, специф §11).
+    # SQLite остаётся для тестов (TITAN_TEST_DB=1 -> временный файл).
+    database_url: str = "postgresql+asyncpg://titan_app:titan2026@127.0.0.1:5432/titan"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -11,21 +11,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from titan.config import settings
 from titan.models.db import Base
 
-# Async-движок: URL берётся из настроек (SQLite сейчас, Postgres потом).
-# connect_args: busy_timeout — сколько ждать снятия блокировки SQLite,
-# чтобы параллельные записи (коллектор + журнал действий) не падали с 'database is locked'.
-import os as _os
-
+# Async-движок: URL берётся из настроек (PostgreSQL сейчас, SQLite для тестов).
+# connect_args: для SQLite — busy_timeout (ожидание блокировки);
+# для PostgreSQL — пул настраивается по умолчанию.
 _connect_args = {}
+_engine_kwargs = {"echo": False, "pool_pre_ping": True}
 if settings.database_url.startswith("sqlite"):
-    # timeout — ожидание снятия блокировки (сек); check_same_thread не нужен для aiosqlite.
-    # 30 с: коллектор пишет каждую секунду, журнал оператора — в пиках одновременно.
-    _connect_args = {"timeout": 30}
+    _connect_args = {"timeout": 30}       # сек ожидания блокировки
 engine = create_async_engine(
-    settings.database_url,
-    echo=False,
-    connect_args=_connect_args,
-    pool_pre_ping=True,   # проверять соединение перед использованием (устойчивость)
+    settings.database_url, connect_args=_connect_args, **_engine_kwargs
 )
 
 # Фабрика сессий: каждая операция с БД — короткая сессия
