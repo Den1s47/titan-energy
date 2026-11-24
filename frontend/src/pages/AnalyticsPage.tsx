@@ -12,12 +12,17 @@ import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts'
 import { api } from '../api'
 
-// Точки телеметрии для анализа (подмножество MVP)
+// Точки телеметрии для анализа (подмножество MVP).
+// Multi-object: code = 'arm1_incomer:P' и т.п. (специф §16).
 const POINTS = [
-  { code: 'P', name: 'Активная мощность, кВт' },
-  { code: 'I', name: 'Ток, А' },
-  { code: 'U', name: 'Напряжение, В' },
-  { code: 'THDi', name: 'THDi, %' },
+  { code: 'arm1_incomer:P', name: 'Мощность — ввод №1 (плечо А), кВт' },
+  { code: 'arm2_incomer:P', name: 'Мощность — ввод №2 (плечо Б), кВт' },
+  { code: 'arm1_incomer:U', name: 'Напряжение — ввод №1, В' },
+  { code: 'arm2_incomer:U', name: 'Напряжение — ввод №2, В' },
+  { code: 'arm1_incomer:I', name: 'Ток — ввод №1, А' },
+  { code: 'arm1_incomer:THDi', name: 'THDi — ввод №1, %' },
+  { code: 'sec1_f1:P', name: 'Мощность — Ф-1 Насосная, кВт' },
+  { code: 'sec2_f1:P', name: 'Мощность — Ф-5 Станочный цех, кВт' },
 ]
 
 // Интервалы усреднения из ТЗ (специф §9.2 «Выбор»)
@@ -85,19 +90,32 @@ export default function AnalyticsPage() {
   })
 
   // ---------- Графики ----------
+  // Автомасштаб Y: от min-10% до max+10% (НЕ от нуля!) — иначе полезная
+  // информация сжимается в полоску (было: U≈230 при шкале 0..250).
+  function yRange(values: Array<number | null | undefined>, extra?: Array<number | null | undefined>): { min?: number; max?: number } {
+    const all = [...values, ...(extra ?? [])].filter((v): v is number => Number.isFinite(v as number))
+    if (!all.length) return {}
+    let lo = Math.min(...all)
+    let hi = Math.max(...all)
+    if (hi - lo < 1e-9) { lo -= 1; hi += 1 }   // плоский ряд: чуть расширяем
+    const pad = (hi - lo) * 0.1
+    return { min: Math.floor((lo - pad) * 10) / 10, max: Math.ceil((hi + pad) * 10) / 10 }
+  }
+
   const seriesRef = useEcharts([seriesQuery.data], (chart) => {
     const d = seriesQuery.data
     if (!d) return
+    const name = POINTS.find((p) => p.code === pointCode)?.name ?? pointCode
     chart.setOption({
-      title: { text: `Временной ряд ${pointCode}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
+      title: { text: `Временной ряд — ${name}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }, { type: 'slider' }],   // зум мышью (ТЗ)
       xAxis: { type: 'category', data: d.times, axisLabel: { color: '#8b93a0' } },
-      yAxis: { type: 'value', axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
+      yAxis: { type: 'value', ...yRange(d.values, d.moving_avg), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [
         { name: pointCode, type: 'line', data: d.values, symbol: 'none', lineStyle: { color: '#4d9fff', width: 1 } },
         { name: `скользящее среднее (${d.avg_window_s}с)`, type: 'line', data: d.moving_avg, symbol: 'none',
-          lineStyle: { color: '#35c46a', width: 2 } },
+          lineStyle: { color: '#ff9f2e', width: 2.5 } },
       ],
       legend: { textStyle: { color: '#8b93a0' } },
       grid: { left: 60, right: 20, top: 40, bottom: 60 },
@@ -134,19 +152,27 @@ export default function AnalyticsPage() {
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }],
       xAxis: { type: 'category', data: s.points.map((_, i) => i), axisLabel: { color: '#8b93a0' } },
-      yAxis: { type: 'value', axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
+      // Автомасштаб с учётом границ UCL/LCL (иначе линии уходят за экран)
+      yAxis: { type: 'value', ...yRange(s.points, [s.ucl, s.lcl]), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [{
         type: 'line', data: pointData, symbol: 'circle', symbolSize: 4, lineStyle: { color: '#4d9fff', width: 1 },
         markLine: {
           symbol: 'none', silent: true,
           data: [
-            { yAxis: s.ucl, label: { formatter: 'UCL (3σ)', color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
-            { yAxis: s.cl, label: { formatter: 'CL', color: '#35c46a' }, lineStyle: { color: '#35c46a' } },
-            { yAxis: s.lcl, label: { formatter: 'LCL (-3σ)', color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
+            // Подписи порогов с ЧИСЛАМИ (статья ЭЛТЕКО: понятность)
+            { yAxis: s.ucl, label: { formatter: `UCL +3σ = ${s.ucl.toFixed(1)}`, color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
+            { yAxis: s.cl, label: { formatter: `CL = ${s.cl.toFixed(1)}`, color: '#35c46a' }, lineStyle: { color: '#35c46a' } },
+            { yAxis: s.lcl, label: { formatter: `LCL −3σ = ${s.lcl.toFixed(1)}`, color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
           ],
         },
+        // Подсвеченная зона нормы между LCL и UCL (markArea)
+        markArea: {
+          silent: true,
+          itemStyle: { color: 'rgba(53,196,106,0.08)' },
+          data: [[{ yAxis: s.lcl }, { yAxis: s.ucl }]],
+        },
       }],
-      grid: { left: 60, right: 20, top: 40, bottom: 60 },
+      grid: { left: 60, right: 90, top: 40, bottom: 60 },   // справа место под подписи
     })
   })
 
@@ -158,7 +184,7 @@ export default function AnalyticsPage() {
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }],
       xAxis: { type: 'category', data: c.values.map((_, i) => i), axisLabel: { color: '#8b93a0' } },
-      yAxis: { type: 'value', axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
+      yAxis: { type: 'value', ...yRange(c.values), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [{ type: 'line', data: c.values, symbol: 'none', lineStyle: { color: '#ff9f2e', width: 2 },
         markLine: { symbol: 'none', data: [{ yAxis: 0, label: { formatter: 'baseline' } }] } }],
       grid: { left: 60, right: 20, top: 40, bottom: 60 },

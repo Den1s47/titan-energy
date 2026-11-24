@@ -1,343 +1,64 @@
-// Многоуровневая мнемосхема ПС 110/10 кВ (специф §16) — главный экран АРМ.
+// Мнемосхема ПС 110/10 кВ — главный экран АРМ (по ГОСТ Р 70451-2022 §7.2.4:
+// принципы избирательности и иерархичности «от общего к частному»).
 //
-// Три уровня навигации (переключение кнопками-крошками, состояние в useState):
-//   Уровень 0 «ПС 110/10»: плитки элементов ПС (плечи, секции, СВ) со статусами
-//     и тепловой картой аварий — обзор;
-//   Уровень 1 «Плечо/Секция»: однолинейная схема (ввод 110 -> Т -> ввод 10 кВ ->
-//     секция -> 4 фидера), значения per-object из live-кэша ('sec1_f2:I');
-//   Уровень 2 «Объект»: детальная схема фидера/ввода + плитки показателей.
+// ГЛАВНЫЙ ЭКРАН = сразу ПОЛНАЯ однолинейная схема ПС (два плеча, шины,
+// секционный QF, 8 фидеров). Клик по любому узлу схемы -> детальная карточка
+// объекта в ПРАВОЙ ПАНЕЛИ (схема остаётся на месте — drill-down на месте).
+// Слева — дерево объектов с подсветкой аварий прямо в дереве.
 //
-// Динамическая индикация по ТЗ 3.3.1:
-//   кабели: под напряжением — сплошная тёмно-серая; обесточена — пунктирная
-//     блёклая; аварийное — мигающий красный;
-//   аппараты: вкл — зелёный квадрат; откл — пустой; местное — «Р»;
-//     неопределённое — оранжевый; аварийное — мигающий красный.
+// Индикация по ТЗ 3.3.1 + палитра ЭЛТЕКО §6 (один цвет = одно значение):
+//   зелёный=вкл, серый/пустой=откл, оранжевый=предупреждение,
+//   красный(мигает)=авария, синий=выделение выбранного.
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
 import { api, type FactoryTree, type LivePoint } from '../api'
 import { useAuth } from '../authStore'
 import TuDialog from './TuDialog'
 import { FaultContextMenu } from './FaultContextMenu'
 
-// ---------- Хелперы индикации (общие для всех уровней) ----------
+// ---------- Палитра ЭЛТЕКО §6: один цвет = одно значение ----------
+const COLOR = {
+  ok: '#35c46a',        // зелёный — работа, включено, готовность
+  off: '#4a4f58',       // серый — остановлено, отключено
+  alarm: '#ff4444',     // красный — авария (мигает до квитирования)
+  warn: '#ff9f2e',      // оранжевый — предупреждение, предавария
+  info: '#4d9fff',      // синий — выбранный режим, активный маршрут
+  energized: '#555b66', // кабель под напряжением (тёмно-серый сплошной)
+  dead: '#7a8090',      // кабель обесточен (пунктир)
+} as const
 
-/** Состояние аппарата по значению BREAKER (0/1/2) + признак аварии. */
-function breakerVisual(value: number, emergency: boolean) {
-  if (emergency) return { fill: '#ff4444', label: 'авария', blink: true }
-  switch (value) {
-    case 1: return { fill: '#35c46a', label: 'вкл', blink: false }
-    case 0: return { fill: 'none', label: 'откл', blink: false }
-    case 2: return { fill: '#ff9f2e', label: 'Р', blink: false }
-    default: return { fill: '#ff9f2e', label: '?', blink: true }  // неопределённое
-  }
-}
-
-/** Цвет кабельной линии: под напряжением / обесточена / авария. */
-function cableVisual(energized: boolean, emergency: boolean) {
-  if (emergency) return { stroke: '#ff4444', dash: '', blink: true }
-  if (energized) return { stroke: '#555b66', dash: '', blink: false }   // сплошная
-  return { stroke: '#4a4f58', dash: '6,4', blink: false }               // пунктир
-}
-
-// CSS-анимация мигания аварийных элементов
 const blinkStyle = `
 @keyframes mnemo-blink { 50% { opacity: 0.25; } }
 .mnemo-blink { animation: mnemo-blink 0.8s step-start infinite; }
 `
 
-// ---------- Типы уровня ----------
-type Level =
-  | { kind: 'factory' }
-  | { kind: 'tp'; tp: FactoryTree }
-  | { kind: 'object'; tp: FactoryTree; obj: FactoryTree }
+/** Состояние аппарата по BREAKER (0/1/2) + авария. */
+function breakerVisual(value: number, emergency: boolean) {
+  if (emergency) return { fill: COLOR.alarm, blink: true }
+  switch (value) {
+    case 1: return { fill: COLOR.ok, blink: false }
+    case 0: return { fill: 'none', blink: false }
+    case 2: return { fill: COLOR.warn, blink: false }
+    default: return { fill: COLOR.warn, blink: true }
+  }
+}
 
-// ---------- Цветовая палитра (закреплённые значения, статья ЭЛТЕКО §6) ----------
-// Один цвет = одно значение во всём проекте. Мигание — только для событий,
-// требующих реакции оператора.
-const COLOR = {
-  ok: '#35c46a',        // зелёный — работа, включено, готовность
-  off: '#4a4f58',       // серый — остановлено, отключено, неактивно
-  alarm: '#ff4444',     // красный — авария, критическая неисправность
-  warn: '#ff9f2e',      // оранжевый — предупреждение, предавария
-  info: '#4d9fff',      // синий — выбранный режим, активный маршрут
-  energized: '#555b66', // кабель под напряжением (тёмно-серый)
-} as const
+/** Цвет кабельной линии. */
+function cableVisual(energized: boolean, emergency: boolean) {
+  if (emergency) return { stroke: COLOR.alarm, dash: '', blink: true }
+  if (energized) return { stroke: COLOR.energized, dash: '', blink: false }
+  return { stroke: COLOR.dead, dash: '6,4', blink: false }
+}
 
-/** Хелперы доступа к live-кэшу multi-object (ключи 'sec1_f2:I'). */
+/** Хелперы live-кэша (ключи 'arm1_incomer:U'). */
 function pointOf(live: Record<string, LivePoint> | undefined, objId: string, code: string): LivePoint | undefined {
   return live?.[`${objId}:${code}`]
 }
 function val(live: Record<string, LivePoint> | undefined, objId: string, code: string): number {
   return pointOf(live, objId, code)?.value ?? 0
 }
-
-/**
- * Аварии человеческим языком + ПОДСКАЗКА оператору, что делать
- * (требование статьи ЭЛТЕКО §8: «не код, а язык и действие»).
- */
-const FAULT_LABELS: Record<number, { text: string; hint: string }> = {
-  1: { text: 'КЗ — сработала МТЗ', hint: 'Проверьте линию, включайте ввод только после поиска повреждения' },
-  2: { text: 'Перегрузка по току', hint: 'Отключите часть потребителей или снизьте нагрузку' },
-  3: { text: 'Перенапряжение', hint: 'Проверьте РПН трансформатора и защиту от перенапряжений' },
-  4: { text: 'Обрыв кабеля', hint: 'Осмотрите кабельную линию, переключите нагрузку на резерв' },
-  5: { text: 'Потеря ввода 110 кВ', hint: 'Перебросьте питание: включите секционный QF (ПКМ на схеме)' },
-}
-
-// ============================================================
-// УРОВЕНЬ 0: ЗАВОД (обзорные плитки обеих ТП)
-// ============================================================
-function FactoryLevel({ tree, live, onOpenTp, onTpContextMenu }: {
-  tree: FactoryTree
-  live: Record<string, LivePoint> | undefined
-  onOpenTp: (tp: FactoryTree) => void
-  onTpContextMenu: (e: React.MouseEvent, tp: FactoryTree) => void
-}) {
-  // Плитки: плечи + секции (Секционный QF показывается отдельной мини-плиткой
-  // ниже — у него нет '_incomer' в live-кэше)
-  const tiles = tree.children.filter((c) => c.id !== 'sec_qf')
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: 8 }}>
-      {tiles.map((tp) => {
-        // Агрегация «снизу вверх»: статус ТП = худший статус её объектов
-        const tpKeys = Object.keys(live ?? {}).filter((k) => k.startsWith(`${tp.id}_`))
-        const hasFault = tpKeys.some((k) => k.endsWith(':FAULT') && (live![k]?.value ?? 0) !== 0)
-        const hasSuspect = tpKeys.some((k) => !k.endsWith(':FAULT') && live![k]?.quality !== 'good')
-        const energized = val(live, `${tp.id}_incomer`, 'BREAKER') === 1
-        const p = val(live, `${tp.id}_incomer`, 'P')
-        const i = val(live, `${tp.id}_incomer`, 'I')
-        const u = val(live, `${tp.id}_incomer`, 'U')
-
-        // Цвет рамки плитки: красный (авария) > оранжевый (suspect) > зелёный (норма)
-        const borderColor = hasFault ? '#ff4444' : hasSuspect ? '#ff9f2e' : '#35c46a'
-
-        return (
-          <div
-            key={tp.id}
-            onClick={() => onOpenTp(tp)}
-            onContextMenu={(e) => onTpContextMenu(e, tp)}
-            style={{
-              cursor: 'pointer', minWidth: 260, padding: '16px 20px',
-              background: '#fff', borderRadius: 10,
-              border: `2px solid ${borderColor}`,
-              boxShadow: hasFault ? '0 0 12px rgba(255,68,68,.5)' : 'none',
-            }}
-            title="ЛКМ — открыть схему ТП"
-          >
-            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 6 }}>{tp.name}</div>
-            {hasFault && (
-              <div style={{ color: '#ff4444', fontWeight: 700, marginBottom: 4 }} className="mnemo-blink">
-                ⚡ АВАРИЯ
-              </div>
-            )}
-            {hasSuspect && !hasFault && (
-              <div style={{ color: '#ff9f2e', fontWeight: 700, marginBottom: 4 }}>⚠️ Ненормальный режим</div>
-            )}
-            {!hasFault && !hasSuspect && (
-              <div style={{ color: energized ? '#35c46a' : '#888', fontWeight: 600, marginBottom: 4 }}>
-                {energized ? '● В работе' : '○ Обесточено'}
-              </div>
-            )}
-            {/* Интегральные показатели ввода ТП */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, color: '#444', fontSize: 14 }}>
-              <span>P: <b>{Math.round(p)}</b> кВт</span>
-              <span>I: <b>{Math.round(i)}</b> А</span>
-              <span>U: <b>{Math.round(u)}</b> В</span>
-              <span>Фидеров: {tp.children.filter((c) => c.kind === 'feeder').length}</span>
-            </div>
-            <div style={{ marginTop: 10, color: '#4d9fff', fontSize: 13 }}>Открыть схему →</div>
-          </div>
-        )
-      })}
-
-      {/* ---------- Мини-плитка секционного QF (переброс) ---------- */}
-      <div
-        style={{
-          minWidth: 220, padding: '14px 18px', background: '#fff',
-          borderRadius: 10, border: '2px solid #999', alignSelf: 'flex-start',
-        }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Секционный QF</div>
-        <div style={{ fontSize: 14, color: '#444' }}>
-          Состояние:{' '}
-          <b style={{ color: val(live, 'sec_qf', 'BREAKER') === 1 ? COLOR.ok : '#888' }}>
-            {val(live, 'sec_qf', 'BREAKER') === 1 ? 'ВКЛЮЧЕН (переброс)' : 'отключён (норма)'}
-          </b>
-        </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#667' }}>
-          Нормально отключён. Включается при потере ввода для питания секции от соседнего плеча.
-        </div>
-      </div>
-      </div>
-    </div>
-  )
-}
-
-// ============================================================
-// УРОВЕНЬ 1: ТП (однолинейная схема с per-object значениями)
-// ============================================================
-function TpLevel({ tp, live, onOpenObject, canTu, onTu, selectedId, onObjContextMenu }: {
-  tp: FactoryTree
-  live: Record<string, LivePoint> | undefined
-  onOpenObject: (obj: FactoryTree) => void
-  canTu: boolean
-  onTu: (obj: FactoryTree) => void
-  selectedId: string | null
-  onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
-}) {
-  const incomerId = `${tp.id}_incomer`
-  const breaker = val(live, incomerId, 'BREAKER')
-  const faultCode = val(live, incomerId, 'FAULT')
-  const energized = breaker === 1
-  const u = val(live, incomerId, 'U')
-  const i = val(live, incomerId, 'I')
-  const p = val(live, incomerId, 'P')
-  const q = val(live, incomerId, 'Q')
-
-  const feeders = tp.children.filter((c) => c.kind === 'feeder')
-  const feederLabels = tp.feeders ?? feeders.map((_, idx) => `Ф-${idx + 1}`)
-
-  return (
-    <div className="card" style={{ background: '#e8eaed' }}>
-      <svg viewBox="0 0 760 320" style={{ width: '100%', display: 'block' }}>
-        {/* ---------- Ввод 10 кВ ---------- */}
-        <text x={20} y={22} fontSize={13} fill="#555">Ввод 10 кВ</text>
-        <text x={560} y={22} fontSize={12} fill="#444">
-          U={Math.round(u)} В · I={Math.round(i)} А · P={Math.round(p)} кВт · Q={Math.round(q)} кВАр
-        </text>
-        <line
-          x1={380} y1={10} x2={380} y2={70}
-          stroke={cableVisual(energized, false).stroke}
-          strokeWidth={3}
-          strokeDasharray={cableVisual(energized, false).dash}
-        />
-        {/* Трансформатор (два круга) */}
-        <circle cx={380} cy={88} r={14} fill="none" stroke="#555b66" strokeWidth={2.5} />
-        <circle cx={380} cy={104} r={14} fill="none" stroke="#555b66" strokeWidth={2.5} />
-        <text x={404} y={100} fontSize={12} fill="#555">
-          {tp.children.find((c) => c.kind === 'transformer')?.name ?? 'Т'}
-        </text>
-        <line x1={380} y1={118} x2={380} y2={148} stroke={cableVisual(energized, false).stroke} strokeWidth={3} strokeDasharray={cableVisual(energized, false).dash} />
-
-        {/* Секция шин 0,4 кВ */}
-        <line x1={120} y1={150} x2={640} y2={150} stroke="#333" strokeWidth={5} />
-        <text x={20} y={155} fontSize={13} fill="#555">Секция 0,4 кВ</text>
-
-        {/* Выключатель ввода (ЛКМ — детали, ПКМ — ТУ) */}
-        <g
-          style={{ cursor: 'pointer' }}
-          pointerEvents="bounding-box"
-          onClick={() => onOpenObject(tp.children.find((c) => c.kind === 'incomer')!)}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            if (canTu) onTu(tp.children.find((c) => c.kind === 'incomer')!)
-            onObjContextMenu(e, tp.children.find((c) => c.kind === 'incomer')!)
-          }}
-        >
-          <rect
-            x={368} y={122} width={24} height={24}
-            fill={breakerVisual(breaker, false).fill}
-            stroke={selectedId === incomerId ? '#4d9fff' : '#333'} strokeWidth={2.5}
-            className={breakerVisual(breaker, false).blink ? 'mnemo-blink' : ''}
-          />
-          {breaker === 2 && <text x={374} y={140} fontSize={13} fontWeight="bold" fill="#fff">Р</text>}
-          <text x={404} y={140} fontSize={12} fill="#555">Ввод QF1</text>
-        </g>
-
-        {/* ---------- 4 фидера: авария мигает ТОЛЬКО на виновнике ---------- */}
-        {feeders.map((f, idx) => {
-          const x = 170 + idx * 140
-          // Авария этого фидера: бэкенд в событии даёт имя ('Секция I, Ф-2');
-          // на схеме фидер-виновник определяется по просадке мощности:
-          // бэкенд распределяет P/I равными долями, при cable_break P падает.
-          // MVP-индикация: авария на фидере = мигание всех при faultObjIdx=0
-          // недоступно из регистров напрямую — используем QUALITY точек фидера.
-          const fFaulty = qualBad(live, f.id)
-          const vis = breakerVisual(energized ? 1 : 0, fFaulty)
-          const fi = val(live, f.id, 'I')
-          const fp = val(live, f.id, 'P')
-          const cable = cableVisual(energized, fFaulty)
-          return (
-            <g
-              key={f.id}
-              style={{ cursor: 'pointer' }}
-              pointerEvents="bounding-box"
-              onClick={() => onOpenObject(f)}
-              onContextMenu={(e) => onObjContextMenu(e, f)}
-            >
-              <rect
-                x={x - 12} y={158} width={24} height={24}
-                fill={vis.fill} stroke={selectedId === f.id ? '#4d9fff' : '#333'} strokeWidth={2}
-                className={vis.blink ? 'mnemo-blink' : ''}
-              />
-              <text x={x - 18} y={198} fontSize={12} fill="#555">Ф-{idx + 1}</text>
-              <line
-                x1={x} y1={182} x2={x} y2={230}
-                stroke={cable.stroke} strokeWidth={2.5}
-                strokeDasharray={cable.dash}
-                className={cable.blink ? 'mnemo-blink' : ''}
-              />
-              <text x={x - 24} y={250} fontSize={12} fill="#777">
-                {energized ? `${Math.round(fi)} А · ${Math.round(fp)} кВт` : '0 А'}
-              </text>
-              <text x={x - 32} y={266} fontSize={11} fill="#99a">
-                {feederLabels[idx]}
-              </text>
-            </g>
-          )
-        })}
-
-        {/* ---------- ⚠️ и баннер аварии с ПОДСКАЗКОЙ оператору (статья §8) ---------- */}
-        {live && Object.entries(live).some(([k, pnt]) => k.startsWith(`${tp.id}_`) && pnt.quality !== 'good') && (
-          <text x={700} y={30} fontSize={22}>⚠️</text>
-        )}
-        {faultCode !== 0 && FAULT_LABELS[faultCode] && (
-          <>
-            <text x={450} y={30} fontSize={14} fill={COLOR.alarm} className="mnemo-blink">
-              ⚡ {FAULT_LABELS[faultCode].text}
-            </text>
-            {/* подсказка не мигает (мигание только для реакции) — статья §6 */}
-            <text x={450} y={48} fontSize={12} fill={COLOR.warn}>
-              Что делать: {FAULT_LABELS[faultCode].hint}
-            </text>
-          </>
-        )}
-      </svg>
-
-      {/* ---------- Легенда цветов (статья §6: единые значения цветов) ---------- */}
-      <div style={{ display: 'flex', gap: 18, padding: '8px 14px', flexWrap: 'wrap', fontSize: 12, color: '#555' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 14, height: 14, background: COLOR.ok, border: '1px solid #999', borderRadius: 3, display: 'inline-block' }} />
-          включён
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 14, height: 14, background: '#fff', border: '1px solid #999', borderRadius: 3, display: 'inline-block' }} />
-          отключён
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 14, height: 14, background: COLOR.warn, border: '1px solid #999', borderRadius: 3, display: 'inline-block' }} />
-          неопределённое / предупреждение
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 14, height: 14, background: COLOR.alarm, border: '1px solid #999', borderRadius: 3, display: 'inline-block' }} />
-          авария (мигает до квитирования)
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 26, height: 0, borderTop: `3px solid ${COLOR.energized}`, display: 'inline-block' }} />
-          под напряжением
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 26, height: 0, borderTop: '3px dashed #4a4f58', display: 'inline-block' }} />
-          обесточено
-        </span>
-      </div>
-    </div>
-  )
-}
-
-/** Есть ли у объекта «плохие» точки (suspect/bad) — признак аварии на нём. */
+/** Признак аварии на объекте (suspect/bad по ключевым точкам). */
 function qualBad(live: Record<string, LivePoint> | undefined, objId: string): boolean {
   return ['U', 'I', 'P'].some((code) => {
     const pnt = live?.[`${objId}:${code}`]
@@ -345,17 +66,104 @@ function qualBad(live: Record<string, LivePoint> | undefined, objId: string): bo
   })
 }
 
+/** Аварии человеческим языком + подсказка «что делать» (статья ЭЛТЕКО §8). */
+const FAULT_LABELS: Record<number, { text: string; hint: string }> = {
+  1: { text: 'КЗ — сработала МТЗ', hint: 'Найдите повреждение линии, включайте ввод только после проверки' },
+  2: { text: 'Перегрузка по току', hint: 'Отключите часть потребителей или снизьте нагрузку' },
+  3: { text: 'Перенапряжение', hint: 'Проверьте РПН трансформатора и защиту от перенапряжений' },
+  4: { text: 'Обрыв кабеля', hint: 'Осмотрите линию, переключите нагрузку на резерв' },
+  5: { text: 'Потеря ввода 110 кВ', hint: 'Перебросьте питание: включите секционный QF (ПКМ на схеме)' },
+}
+
 // ============================================================
-// УРОВЕНЬ 2: ОБЪЕКТ (детальная схема + плитки показателей)
+// ДЕРЕВО ОБЪЕКТОВ (слева): аварийные объекты подсвечены прямо в дереве
 // ============================================================
-function ObjectLevel({ tp, obj, live }: {
-  tp: FactoryTree
+function ObjectTree({ tree, live, selectedId, onSelect }: {
+  tree: FactoryTree
+  live: Record<string, LivePoint> | undefined
+  selectedId: string | null
+  onSelect: (obj: FactoryTree) => void
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  /** Ряд дерева: значок состояния + имя. */
+  function Row({ node, depth }: { node: FactoryTree; depth: number }) {
+    const isGroup = node.children.length > 0
+    const broken = qualBad(live, node.id)
+    const hasFaultCode = !isGroup && val(live, node.id, 'FAULT') !== 0
+    const bad = broken || hasFaultCode
+    const selected = selectedId === node.id
+
+    // Состояние-значок: для групп агрегируем снизу вверх
+    let dot: string = COLOR.ok
+    let dotTitle = 'норма'
+    if (isGroup) {
+      const subtreeBad = node.children.some((c) =>
+        c.children.length ? c.children.some((cc) => qualBad(live, cc.id)) : qualBad(live, c.id))
+      if (subtreeBad) { dot = COLOR.alarm; dotTitle = 'есть нарушения внутри' }
+    } else {
+      const b = val(live, node.id, 'BREAKER')
+      if (hasFaultCode || broken) { dot = COLOR.alarm; dotTitle = 'авария/отклонение' }
+      else if (b === 0) { dot = '#b9bec7'; dotTitle = 'отключён' }
+    }
+
+    return (
+      <div style={{ paddingLeft: depth * 14 }}>
+        <div
+          onClick={() => onSelect(node)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '3px 6px', borderRadius: 6, cursor: 'pointer',
+            background: selected ? 'rgba(77,159,255,.15)' : 'transparent',
+            color: bad ? COLOR.alarm : 'inherit',
+            fontWeight: bad ? 700 : 400,
+          }}
+          title={node.name + (bad ? ' — есть нарушение' : '')}
+        >
+          {isGroup && (
+            <span
+              onClick={(e) => { e.stopPropagation(); setCollapsed((m) => ({ ...m, [node.id]: !m[node.id] })) }}
+              style={{ cursor: 'pointer', width: 12, display: 'inline-block', color: '#889' }}
+            >
+              {collapsed[node.id] ? '▸' : '▾'}
+            </span>
+          )}
+          <span
+            style={{
+              width: 10, height: 10, borderRadius: '50%', background: dot,
+              flexShrink: 0, border: '1px solid rgba(0,0,0,.2)',
+              animation: bad ? 'mnemo-blink 0.8s step-start infinite' : undefined,
+            }}
+            title={dotTitle}
+          />
+          <span style={{ fontSize: 13 }}>{node.name}</span>
+        </div>
+        {!collapsed[node.id] && node.children.map((c) => <Row key={c.id} node={c} depth={depth + 1} />)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="card" style={{ padding: 10, maxHeight: 560, overflowY: 'auto' }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#556', marginBottom: 6 }}>ОБЪЕКТЫ ПС</div>
+      <Row node={tree} depth={0} />
+    </div>
+  )
+}
+
+// ============================================================
+// ДЕТАЛЬНАЯ КАРТОЧКА ОБЪЕКТА (правая панель при клике на узел схемы)
+// ============================================================
+function ObjectCard({ obj, live, canTu, onTu, onClose }: {
   obj: FactoryTree
   live: Record<string, LivePoint> | undefined
+  canTu: boolean
+  onTu: (obj: FactoryTree) => void
+  onClose: () => void
 }) {
   const breaker = val(live, obj.id, 'BREAKER')
   const faulty = qualBad(live, obj.id)
-  const energized = breaker === 1 && !faulty
+  const faultCode = val(live, obj.id, 'FAULT')
   const rows: Array<[string, string, string]> = [
     ['U', 'Напряжение', 'В'],
     ['I', 'Ток', 'А'],
@@ -365,59 +173,61 @@ function ObjectLevel({ tp, obj, live }: {
     ['THDi', 'Несинусоидальность I', '%'],
     ['PF', 'Коэффициент мощности', 'о.е.'],
   ]
-  return (
-    <div>
-      <div className="card" style={{ background: '#e8eaed' }}>
-        <svg viewBox="0 0 760 200" style={{ width: '100%', display: 'block' }}>
-          <text x={20} y={24} fontSize={14} fill="#333">{tp.name} → {obj.name}</text>
-          {/* кабель питания объекта */}
-          <line
-            x1={380} y1={40} x2={380} y2={90}
-            stroke={cableVisual(energized, faulty).stroke}
-            strokeWidth={3} strokeDasharray={cableVisual(energized, faulty).dash}
-            className={cableVisual(energized, faulty).blink ? 'mnemo-blink' : ''}
-          />
-          {/* выключатель объекта */}
-          <rect
-            x={368} y={90} width={24} height={24}
-            fill={breakerVisual(breaker, faulty).fill}
-            stroke="#333" strokeWidth={2.5}
-            className={breakerVisual(breaker, faulty).blink ? 'mnemo-blink' : ''}
-          />
-          <text x={404} y={108} fontSize={12} fill="#555">
-            {obj.kind === 'incomer' ? 'Ввод QF1' : 'QF фидера'}
-          </text>
-          {/* нагрузка */}
-          <line x1={380} y1={114} x2={380} y2={150} stroke={cableVisual(energized, faulty).stroke} strokeWidth={3} strokeDasharray={cableVisual(energized, faulty).dash} />
-          <rect x={340} y={150} width={80} height={34} rx={4} fill="none" stroke="#555b66" strokeWidth={2} />
-          <text x={352} y={172} fontSize={12} fill="#555">
-            {obj.kind === 'feeder' ? 'нагрузка' : obj.kind === 'bus' ? 'секция' : 'шины 10 кВ'}
-          </text>
-          {faulty && (
-            <text x={520} y={60} fontSize={14} fill="#ff4444" className="mnemo-blink">
-              ⚠️ АВАРИЯ / ОТКЛОНЕНИЕ
-            </text>
-          )}
-        </svg>
-      </div>
+  const tuTarget = obj.kind === 'incomer10' || obj.kind === 'sectional' || obj.kind === 'incomer'
 
-      {/* Показатели объекта (per-object из live-кэша) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginTop: 12 }}>
+  return (
+    <div className="card" style={{ padding: 14, position: 'relative' }}>
+      <button
+        onClick={onClose}
+        style={{ position: 'absolute', top: 8, right: 10, background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#889' }}
+        title="Закрыть карточку"
+      >✕</button>
+
+      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 2 }}>{obj.name}</div>
+      {obj.voltage && <div style={{ fontSize: 12, color: '#777', marginBottom: 8 }}>{obj.voltage}</div>}
+
+      {/* Состояние + авария с подсказкой */}
+      {faulty || faultCode !== 0 ? (
+        <div style={{ background: '#fff2f0', borderLeft: '4px solid ' + COLOR.alarm, padding: '8px 10px', marginBottom: 10, borderRadius: 6 }}>
+          <div style={{ fontWeight: 700, color: COLOR.alarm }}>
+            ⚠️ {FAULT_LABELS[faultCode]?.text ?? 'Отклонение параметров'}
+          </div>
+          {FAULT_LABELS[faultCode] && (
+            <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+              Что делать: {FAULT_LABELS[faultCode].hint}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ background: '#f0faf3', borderLeft: '4px solid ' + COLOR.ok, padding: '8px 10px', marginBottom: 10, borderRadius: 6 }}>
+          <b style={{ color: COLOR.ok }}>
+            {breaker === 1 ? 'Включён, работа в норме' : breaker === 0 ? 'Отключён' : 'Местное управление'}
+          </b>
+        </div>
+      )}
+
+      {/* ТУ (только управляемые аппараты) */}
+      {canTu && tuTarget && (
+        <button className="btn" style={{ width: '100%', marginBottom: 10 }}
+          onClick={() => onTu(obj)}>
+          Телеуправление: включить / отключить
+        </button>
+      )}
+
+      {/* Плитки показателей */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         {rows.map(([code, name, unit]) => {
           const pnt = pointOf(live, obj.id, code)
           const isSuspect = pnt ? pnt.quality !== 'good' : false
           return (
-            <div key={code} className="card" style={{
-              padding: '10px 14px',
-              borderLeft: `4px solid ${isSuspect ? '#ff9f2e' : '#35c46a'}`,
-              background: isSuspect ? '#fff7ec' : '#fff',
+            <div key={code} style={{
+              padding: '6px 10px', borderRadius: 6, background: '#f6f7f9',
+              borderLeft: `3px solid ${isSuspect ? COLOR.warn : COLOR.ok}`,
             }}>
-              <div style={{ fontSize: 12, color: '#777' }}>
-                {name} {isSuspect && '⚠️'}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: isSuspect ? '#e67e00' : '#222' }}>
-                {pnt ? pnt.value.toFixed(code === 'PF' || code.startsWith('THD') ? 1 : 0) : '—'}{' '}
-                <span style={{ fontSize: 13, fontWeight: 400 }}>{unit}</span>
+              <div style={{ fontSize: 11, color: '#777' }}>{name} {isSuspect && '⚠️'}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: isSuspect ? '#e67e00' : '#222' }}>
+                {pnt ? pnt.value.toFixed(code === 'PF' || code.startsWith('THD') ? 1 : 0) : '—'}
+                <span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}> {unit}</span>
               </div>
             </div>
           )
@@ -428,79 +238,276 @@ function ObjectLevel({ tp, obj, live }: {
 }
 
 // ============================================================
-// ГЛАВНЫЙ КОМПОНЕНТ: навигация по уровням
+// ГЛАВНАЯ СХЕМА ПС 110/10 (вся сразу, клик по узлу = карточка)
+// ============================================================
+function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextMenu }: {
+  tree: FactoryTree
+  live: Record<string, LivePoint> | undefined
+  canTu: boolean
+  onTu: (obj: FactoryTree) => void
+  selectedId: string | null
+  onSelect: (obj: FactoryTree) => void
+  onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
+}) {
+  const arm1 = tree.children.find((c) => c.id === 'arm1')!
+  const arm2 = tree.children.find((c) => c.id === 'arm2')!
+  const sec1 = tree.children.find((c) => c.id === 'sec1')!
+  const sec2 = tree.children.find((c) => c.id === 'sec2')!
+  const secQf = tree.children.find((c) => c.id === 'sec_qf')!
+
+  const b1 = val(live, 'arm1_incomer', 'BREAKER')
+  const b2 = val(live, 'arm2_incomer', 'BREAKER')
+  const sectional = val(live, 'sec_qf', 'BREAKER')
+  const fault1 = val(live, 'arm1_incomer', 'FAULT')
+  const fault2 = val(live, 'arm2_incomer', 'FAULT')
+
+  const u1 = val(live, 'arm1_incomer', 'U')
+  const i1 = val(live, 'arm1_incomer', 'I')
+  const p1 = val(live, 'arm1_incomer', 'P')
+  const u2 = val(live, 'arm2_incomer', 'U')
+  const i2 = val(live, 'arm2_incomer', 'I')
+  const p2 = val(live, 'arm2_incomer', 'P')
+
+  const sec1Fed = b1 === 1 || (sectional === 1 && b2 === 1)
+  const sec2Fed = b2 === 1 || (sectional === 1 && b1 === 1)
+  const anyFault = fault1 !== 0 || fault2 !== 0
+
+  /** Кликабельный аппарат на схеме. */
+  function Apparatus({ x, y, obj, breaker, emergency }: {
+    x: number; y: number; obj: FactoryTree; breaker: number; emergency: boolean
+  }) {
+    const vis = breakerVisual(breaker, emergency)
+    return (
+      <g
+        style={{ cursor: 'pointer' }}
+        pointerEvents="bounding-box"
+        onClick={() => onSelect(obj)}
+        onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(obj); onObjContextMenu(e, obj) }}
+      >
+        <rect
+          x={x - 12} y={y - 12} width={24} height={24}
+          fill={vis.fill}
+          stroke={selectedId === obj.id ? COLOR.info : '#333'} strokeWidth={selectedId === obj.id ? 3.5 : 2.5}
+          className={vis.blink ? 'mnemo-blink' : ''}
+        />
+        {breaker === 2 && <text x={x - 6} y={y + 5} fontSize={13} fontWeight="bold" fill="#fff">Р</text>}
+      </g>
+    )
+  }
+
+  return (
+    <div className="card" style={{ background: '#e8eaed' }}>
+      <svg viewBox="0 0 900 460" style={{ width: '100%', display: 'block' }}>
+        {/* --- Заголовки вводов 110 кВ --- */}
+        <text x={150} y={30} fontSize={14} fontWeight="bold" fill="#333" textAnchor="middle">Ввод 110 кВ №1</text>
+        <text x={750} y={30} fontSize={14} fontWeight="bold" fill="#333" textAnchor="middle">Ввод 110 кВ №2</text>
+
+        <line x1={150} y1={40} x2={150} y2={70} stroke="#333" strokeWidth={2.5} />
+        <line x1={750} y1={40} x2={750} y2={70} stroke="#333" strokeWidth={2.5} />
+
+        {/* --- Q-110 --- */}
+        <Apparatus x={150} y={85} obj={find(arm1, 'arm1_q110')} breaker={b1} emergency={fault1 !== 0} />
+        <Apparatus x={750} y={85} obj={find(arm2, 'arm2_q110')} breaker={b2} emergency={fault2 !== 0} />
+        <text x={175} y={90} fontSize={12} fill="#555">Q-110</text>
+        <text x={775} y={90} fontSize={12} fill="#555">Q-110</text>
+
+        <line x1={150} y1={97} x2={150} y2={130} stroke="#333" strokeWidth={2.5} />
+        <line x1={750} y1={97} x2={750} y2={130} stroke="#333" strokeWidth={2.5} />
+
+        {/* --- Трансформаторы --- */}
+        <g style={{ cursor: 'pointer' }} onClick={() => onSelect(find(arm1, 'arm1_tr'))}>
+          <circle cx={150} cy={148} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
+          <circle cx={150} cy={168} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
+          <text x={178} y={162} fontSize={13} fontWeight="bold" fill="#333">T1</text>
+        </g>
+        <g style={{ cursor: 'pointer' }} onClick={() => onSelect(find(arm2, 'arm2_tr'))}>
+          <circle cx={750} cy={148} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
+          <circle cx={750} cy={168} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
+          <text x={778} y={162} fontSize={13} fontWeight="bold" fill="#333">T2</text>
+        </g>
+
+        <line x1={150} y1={184} x2={150} y2={225} stroke={cableVisual(b1 === 1, fault1 !== 0).stroke}
+          strokeWidth={3} strokeDasharray={cableVisual(b1 === 1, fault1 !== 0).dash}
+          className={cableVisual(b1 === 1, fault1 !== 0).blink ? 'mnemo-blink' : ''} />
+        <line x1={750} y1={184} x2={750} y2={225} stroke={cableVisual(b2 === 1, fault2 !== 0).stroke}
+          strokeWidth={3} strokeDasharray={cableVisual(b2 === 1, fault2 !== 0).dash}
+          className={cableVisual(b2 === 1, fault2 !== 0).blink ? 'mnemo-blink' : ''} />
+
+        {/* --- Вводные 10 кВ с показаниями --- */}
+        <Apparatus x={150} y={240} obj={find(arm1, 'arm1_incomer')} breaker={b1} emergency={fault1 !== 0} />
+        <Apparatus x={750} y={240} obj={find(arm2, 'arm2_incomer')} breaker={b2} emergency={fault2 !== 0} />
+        <text x={175} y={238} fontSize={12} fill="#555">Ввод 10 кВ</text>
+        <text x={775} y={238} fontSize={12} fill="#555">Ввод 10 кВ</text>
+        <text x={175} y={254} fontSize={11} fill="#777">U={Math.round(u1)} · I={Math.round(i1)} · P={Math.round(p1)} кВт</text>
+        <text x={775} y={254} fontSize={11} fill="#777">U={Math.round(u2)} · I={Math.round(i2)} · P={Math.round(p2)} кВт</text>
+
+        <line x1={150} y1={252} x2={150} y2={300} stroke={cableVisual(b1 === 1, fault1 !== 0).stroke} strokeWidth={3} strokeDasharray={cableVisual(b1 === 1, fault1 !== 0).dash} />
+        <line x1={750} y1={252} x2={750} y2={300} stroke={cableVisual(b2 === 1, fault2 !== 0).stroke} strokeWidth={3} strokeDasharray={cableVisual(b2 === 1, fault2 !== 0).dash} />
+
+        {/* --- Шины 10 кВ --- */}
+        <line x1={60} y1={300} x2={380} y2={300} stroke={sec1Fed ? '#2a6fd4' : '#888'} strokeWidth={7} />
+        <line x1={520} y1={300} x2={840} y2={300} stroke={sec2Fed ? '#2a6fd4' : '#888'} strokeWidth={7} />
+        <text x={70} y={325} fontSize={13} fontWeight="bold" fill="#333">Секция I</text>
+        <text x={530} y={325} fontSize={13} fontWeight="bold" fill="#333">Секция II</text>
+        <text x={230} y={325} fontSize={11} fill={sec1Fed ? '#2a6fd4' : '#c44'}>
+          {sec1Fed ? (b1 === 1 ? 'от ввода №1' : 'через СВ') : 'ОБЕСТОЧЕНА'}
+        </text>
+        <text x={680} y={325} fontSize={11} fill={sec2Fed ? '#2a6fd4' : '#c44'}>
+          {sec2Fed ? (b2 === 1 ? 'от ввода №2' : 'через СВ') : 'ОБЕСТОЧЕНА'}
+        </text>
+
+        {/* --- Секционный QF --- */}
+        <line x1={380} y1={300} x2={430} y2={300} stroke="#333" strokeWidth={3} />
+        <g
+          style={{ cursor: 'pointer' }}
+          pointerEvents="bounding-box"
+          onClick={() => onSelect(secQf)}
+          onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(secQf); onObjContextMenu(e, secQf) }}
+        >
+          <rect
+            x={430} y={288} width={40} height={24}
+            fill={breakerVisual(sectional, false).fill}
+            stroke={selectedId === secQf.id ? COLOR.info : '#333'} strokeWidth={selectedId === secQf.id ? 3.5 : 2.5}
+            className={breakerVisual(sectional, false).blink ? 'mnemo-blink' : ''}
+          />
+          <line x1={433} y1={310} x2={467} y2={290} stroke="#333" strokeWidth={2} />
+        </g>
+        <line x1={470} y1={300} x2={520} y2={300} stroke="#333" strokeWidth={3} />
+        <text x={450} y={275} fontSize={12} textAnchor="middle" fill="#333">Секционный</text>
+        <text x={450} y={332} fontSize={11} textAnchor="middle" fill={sectional === 1 ? '#2a6fd4' : '#555'}>
+          {sectional === 1 ? 'ВКЛЮЧЕН' : 'Отключен'}
+        </text>
+
+        {/* --- Фидеры секции I --- */}
+        {sec1.children.map((f, idx) => {
+          const x = 90 + idx * 75
+          const fBad = qualBad(live, f.id)
+          const vis = breakerVisual(sec1Fed ? 1 : 0, fBad)
+          const cable = cableVisual(sec1Fed, fBad)
+          return (
+            <g key={f.id} style={{ cursor: 'pointer' }} pointerEvents="bounding-box"
+              onClick={() => onSelect(f)} onContextMenu={(e) => onObjContextMenu(e, f)}>
+              <rect x={x - 10} y={340} width={20} height={20} fill={vis.fill} stroke={selectedId === f.id ? COLOR.info : '#333'} strokeWidth={2}
+                className={vis.blink ? 'mnemo-blink' : ''} />
+              <line x1={x} y1={300} x2={x} y2={340} stroke={cable.stroke} strokeWidth={2.5}
+                strokeDasharray={cable.dash} className={cable.blink ? 'mnemo-blink' : ''} />
+              <line x1={x} y1={360} x2={x} y2={395} stroke={cable.stroke} strokeWidth={2.5}
+                strokeDasharray={cable.dash} className={cable.blink ? 'mnemo-blink' : ''} />
+              <path d={`M ${x - 6} ${390} L ${x + 6} ${390} L ${x} ${398} Z`} fill={cable.stroke} />
+              <text x={x} y={415} fontSize={11} textAnchor="middle"
+                fill={fBad ? COLOR.alarm : '#555'} fontWeight={fBad ? 700 : 400}>Ф-{idx + 1}</text>
+              <text x={x} y={430} fontSize={10} textAnchor="middle" fill="#99a">
+                {val(live, f.id, 'I') ? `${Math.round(val(live, f.id, 'I'))} А` : ''}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* --- Фидеры секции II --- */}
+        {sec2.children.map((f, idx) => {
+          const x = 550 + idx * 75
+          const fBad = qualBad(live, f.id)
+          const vis = breakerVisual(sec2Fed ? 1 : 0, fBad)
+          const cable = cableVisual(sec2Fed, fBad)
+          return (
+            <g key={f.id} style={{ cursor: 'pointer' }} pointerEvents="bounding-box"
+              onClick={() => onSelect(f)} onContextMenu={(e) => onObjContextMenu(e, f)}>
+              <rect x={x - 10} y={340} width={20} height={20} fill={vis.fill} stroke={selectedId === f.id ? COLOR.info : '#333'} strokeWidth={2}
+                className={vis.blink ? 'mnemo-blink' : ''} />
+              <line x1={x} y1={300} x2={x} y2={340} stroke={cable.stroke} strokeWidth={2.5}
+                strokeDasharray={cable.dash} className={cable.blink ? 'mnemo-blink' : ''} />
+              <line x1={x} y1={360} x2={x} y2={395} stroke={cable.stroke} strokeWidth={2.5}
+                strokeDasharray={cable.dash} className={cable.blink ? 'mnemo-blink' : ''} />
+              <path d={`M ${x - 6} ${390} L ${x + 6} ${390} L ${x} ${398} Z`} fill={cable.stroke} />
+              <text x={x} y={415} fontSize={11} textAnchor="middle"
+                fill={fBad ? COLOR.alarm : '#555'} fontWeight={fBad ? 700 : 400}>Ф-{idx + 5}</text>
+              <text x={x} y={430} fontSize={10} textAnchor="middle" fill="#99a">
+                {val(live, f.id, 'I') ? `${Math.round(val(live, f.id, 'I'))} А` : ''}
+              </text>
+            </g>
+          )
+        })}
+
+        {/* --- Баннер аварии с подсказкой --- */}
+        {anyFault && FAULT_LABELS[fault1 || fault2] && (
+          <>
+            <text x={450} y={20} fontSize={14} fill={COLOR.alarm} textAnchor="middle" className="mnemo-blink">
+              ⚡ {FAULT_LABELS[fault1 || fault2].text}
+              {fault1 !== 0 ? ' (плечо А)' : ''}{fault2 !== 0 ? ' (плечо Б)' : ''}
+            </text>
+            <text x={450} y={38} fontSize={12} fill={COLOR.warn} textAnchor="middle">
+              Что делать: {FAULT_LABELS[fault1 || fault2].hint}
+            </text>
+          </>
+        )}
+      </svg>
+
+      {/* Легенда */}
+      <div style={{ display: 'flex', gap: 16, padding: '8px 14px', flexWrap: 'wrap', fontSize: 12, color: '#555' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 14, height: 14, background: COLOR.ok, border: '1px solid #999', borderRadius: 3 }} /> включён
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 14, height: 14, background: '#fff', border: '1px solid #999', borderRadius: 3 }} /> отключён
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 14, height: 14, background: COLOR.warn, border: '1px solid #999', borderRadius: 3 }} /> неопределённое
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 14, height: 14, background: COLOR.alarm, border: '1px solid #999', borderRadius: 3 }} /> авария
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 26, borderTop: `3px solid ${COLOR.energized}`, display: 'inline-block' }} /> под напряжением
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 26, borderTop: '3px dashed #4a4f58', display: 'inline-block' }} /> обесточено
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Поиск узла по id внутри группы. */
+function find(group: FactoryTree, id: string): FactoryTree {
+  return group.children.find((c) => c.id === id)!
+}
+
+// ============================================================
+// ГЛАВНЫЙ КОМПОНЕНТ: схема + дерево слева + карточка справа
 // ============================================================
 export default function MnemoPage() {
   const role = useAuth((s) => s.user?.role)
   const canTu = role === 'dispatcher' || role === 'admin'
   const isAdmin = role === 'admin'
-  const [searchParams] = useSearchParams()
 
-  // Телеметрия 1 Гц
   const { data: live } = useQuery({
     queryKey: ['live'],
     queryFn: api.live,
     refetchInterval: 1000,
   })
 
-  // Дерево завода (статично — грузится один раз)
   const { data: tree } = useQuery({
     queryKey: ['objectsTree'],
     queryFn: api.objectsTree,
     staleTime: Infinity,
   })
 
-  // Текущий уровень навигации (по умолчанию — завод)
-  const [level, setLevel] = useState<Level>({ kind: 'factory' })
+  // Выбранный объект (для правой панели). Схема ВСЕГДА на месте.
+  const [selected, setSelected] = useState<FactoryTree | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-
-  // Диалог ТУ
   const [tuOpen, setTuOpen] = useState(false)
-  const [tuObject, setTuObject] = useState('Ввод')
-
-  // ПКМ-меню «Создать аварию» (координаты курсора + объект)
+  const [tuObject, setTuObject] = useState('Секционный QF')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; obj: FactoryTree } | null>(null)
 
-  // Переход из аларм-бара: /?obj=sec1_f2 — раскрываем уровень объекта.
-  // Эффект срабатывает один на изменение параметра.
-  useEffect(() => {
-    const objId = searchParams.get('obj')
-    if (!objId || !tree) return
-    // Находим объект и его ТП в дереве
-    const findWithTp = (node: FactoryTree, tp: FactoryTree | null): { obj: FactoryTree; tp: FactoryTree } | null => {
-      for (const child of node.children) {
-        const curTp = child.kind === 'group' && child.id !== 'factory' ? child : tp
-        if (child.id === objId) return { obj: child, tp: curTp! }
-        const deeper = findWithTp(child, curTp)
-        if (deeper) return deeper
-      }
-      return null
-    }
-    const found = findWithTp(tree, null)
-    if (found) {
-      // Если конечный объект — уровень 2, если ТП — уровень 1
-      if (found.obj.kind === 'group') setLevel({ kind: 'tp', tp: found.obj })
-      else setLevel({ kind: 'object', tp: found.tp, obj: found.obj })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, tree])
+  function onSelect(obj: FactoryTree) {
+    setSelected(obj)
+    setSelectedId(obj.id)
+  }
 
-  // Универсальный обработчик ПКМ по объекту (admin): открыть меню аварии
   function onObjectContextMenu(e: React.MouseEvent, obj: FactoryTree) {
     if (!isAdmin) return
     e.preventDefault()
     setCtxMenu({ x: e.clientX, y: e.clientY, obj })
-  }
-
-  // Хлебные крошки: ПС 110/10 → Секция I → Ф-2
-  const crumbs: Array<{ label: string; go: () => void }> = [
-    { label: 'ПС 110/10', go: () => setLevel({ kind: 'factory' }) },
-  ]
-  if (level.kind !== 'factory') {
-    crumbs.push({ label: level.tp.name, go: () => setLevel({ kind: 'tp', tp: level.tp }) })
-    if (level.kind === 'object') {
-      crumbs.push({ label: level.obj.name, go: () => {} })
-    }
   }
 
   if (!tree) return <div className="muted">Загрузка дерева объектов…</div>
@@ -508,61 +515,47 @@ export default function MnemoPage() {
   return (
     <>
       <style>{blinkStyle}</style>
-      <h2>Мнемосхема</h2>
-
-      {/* ---------- Навигация: хлебные крошки ---------- */}
-      <div style={{ marginBottom: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
-        {crumbs.map((c, idx) => (
-          <span key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {idx > 0 && <span style={{ color: '#999' }}>→</span>}
-            <button
-              onClick={c.go}
-              disabled={idx === crumbs.length - 1}
-              style={{
-                padding: '4px 10px', borderRadius: 6,
-                cursor: idx === crumbs.length - 1 ? 'default' : 'pointer',
-                background: idx === crumbs.length - 1 ? '#e8eaed' : '#fff',
-                border: '1px solid #ccc',
-                fontWeight: idx === crumbs.length - 1 ? 700 : 400,
-              }}
-            >
-              {c.label}
-            </button>
-          </span>
-        ))}
-      </div>
-
+      <h2>Мнемосхема — ПС 110/10 кВ</h2>
       <div className="muted" style={{ marginBottom: 8 }}>
-        {level.kind === 'factory' && 'Обзор завода. ЛКМ по ТП — открыть её схему.'}
-        {level.kind === 'tp' && `Схема ${level.tp.name}. ЛКМ по объекту — детали; ${canTu ? 'ПКМ по выключателю ввода — телеуправление.' : 'ТУ доступно роли dispatcher+.'}`}
-        {level.kind === 'object' && `Детали объекта «${level.obj.name}».`}
+        Клик по узлу схемы или дереву — детальная карточка объекта.
+        {canTu ? ' ПКМ по аппарату — телеуправление.' : ' ТУ доступно роли dispatcher+.'}
+        {isAdmin ? ' ПКМ — создать аварию (симуляция).' : ''}
       </div>
 
-      {/* ---------- Уровни ---------- */}
-      {level.kind === 'factory' && (
-        <FactoryLevel
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 320px', gap: 14, alignItems: 'start' }}>
+        {/* --- Дерево объектов (слева) --- */}
+        <ObjectTree tree={tree} live={live} selectedId={selectedId} onSelect={onSelect} />
+
+        {/* --- Схема (центр, всегда на месте) --- */}
+        <PsScheme
           tree={tree}
-          live={live}
-          onOpenTp={(tp) => setLevel({ kind: 'tp', tp })}
-          onTpContextMenu={onObjectContextMenu}
-        />
-      )}
-      {level.kind === 'tp' && (
-        <TpLevel
-          tp={level.tp}
           live={live}
           canTu={canTu}
           selectedId={selectedId}
-          onOpenObject={(obj) => setLevel({ kind: 'object', tp: level.tp, obj })}
+          onSelect={onSelect}
           onTu={(obj) => { setTuObject(obj.name); setSelectedId(obj.id); setTuOpen(true) }}
           onObjContextMenu={onObjectContextMenu}
         />
-      )}
-      {level.kind === 'object' && (
-        <ObjectLevel tp={level.tp} obj={level.obj} live={live} />
-      )}
 
-      {/* ПКМ-меню «Создать аварию» (admin, специф §16) */}
+        {/* --- Карточка объекта (справа, при выборе) --- */}
+        <div>
+          {selected ? (
+            <ObjectCard
+              obj={selected}
+              live={live}
+              canTu={canTu}
+              onTu={(obj) => { setTuObject(obj.name); setTuOpen(true) }}
+              onClose={() => { setSelected(null); setSelectedId(null) }}
+            />
+          ) : (
+            <div className="card" style={{ padding: 14, color: '#889', fontSize: 13 }}>
+              Выбери узел на схеме или в дереве слева —
+              здесь появятся его показатели и управление.
+            </div>
+          )}
+        </div>
+      </div>
+
       {ctxMenu && (
         <FaultContextMenu
           x={ctxMenu.x}
@@ -573,11 +566,10 @@ export default function MnemoPage() {
         />
       )}
 
-      {/* Диалог ТУ (двухшаговый алгоритм) */}
       {tuOpen && (
         <TuDialog
           objectName={tuObject}
-          onClose={() => { setTuOpen(false); setSelectedId(null) }}
+          onClose={() => setTuOpen(false)}
         />
       )}
     </>
