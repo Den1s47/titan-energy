@@ -15,7 +15,7 @@ import io
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -101,6 +101,13 @@ async def _load_values(point_code: str, minutes: float) -> list[float]:
     передан старый формат ('P'), берём точку ВВОДА ТП-1 ('tp1_incomer:P') —
     обратная совместимость со старыми графиками/ссылками.
     """
+    # Защита от аномальных периодов (пентест 23.11): отрицательный период
+    # бессмыслен, гигантский выгружает всю таблицу (DoS-вектор). Максимум —
+    # 30 дней, достаточно для любых отчётов.
+    if not (0 < minutes <= 60 * 24 * 30):
+        # 400 с человеческим текстом (а не 500 — ранее необработанный ValueError)
+        raise HTTPException(status_code=400,
+                            detail="Период minutes должен быть в диапазоне (0..43200] — максимум 30 дней")
     if ":" not in point_code:
         point_code = f"arm1_incomer:{point_code}"
     since = utcnow() - timedelta(minutes=minutes)

@@ -138,7 +138,9 @@ async def test_analytics_series_endpoint(client):
                          headers=auth(token))
     assert r.status_code == 200
     d = r.json()
-    assert d["point_code"] == "P"
+    # Multi-object (специф §16): короткий код 'P' разворачивается в полный
+    # 'arm1_incomer:P' (фолбэк-префикс для обратной совместимости)
+    assert d["point_code"] == "arm1_incomer:P"
     assert len(d["times"]) == len(d["values"]) > 0
     # статистика по ряду
     assert d["stats"]["count"] > 0

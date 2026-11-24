@@ -245,6 +245,10 @@ async def sim_fault(object_id: str, scenario: str, duration_s: float = 10.0,
     allowed = {"short_circuit", "overload", "overvoltage", "cable_break", "line_loss_110"}
     if scenario not in allowed:
         return {"ok": False, "error": f"scenario must be one of {sorted(allowed)}"}
+    # Валидация длительности (пентест 23.11: duration_s=-5 уходил в движок —
+    # отрицательное время = неопределённое поведение таймера восстановления)
+    if not (0 < duration_s <= 3600):
+        return {"ok": False, "error": "duration_s должен быть в диапазоне (0..3600] с"}
 
     from titan.simulator.factory import find_object
     obj = find_object(object_id)

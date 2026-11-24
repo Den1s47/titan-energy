@@ -49,8 +49,29 @@ export async function apiFetch<T>(
     throw new ApiError(401, 'Не авторизован')
   }
   if (!res.ok) {
-    const detail = await res.text().catch(() => '')
-    throw new ApiError(res.status, detail || `Ошибка ${res.status}`)
+    // Тело ошибки может быть: FastAPI {"detail": "..."} — раскрываем до
+    // человекочитаемого текста (иначе юзер видит сырой JSON, баг из демо);
+    // либо уже готовый текст. Извлекаем detail, экранированные символы
+    // разворачиваем, кавычки убираем.
+    const raw = await res.text().catch(() => '')
+    let msg = raw
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed.detail === 'string') msg = parsed.detail
+      else if (Array.isArray(parsed.detail)) {
+        // Ошибки валидации pydantic: массив объектов — берём самое главное
+        msg = parsed.detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join('; ')
+      }
+    } catch { /* не JSON — оставляем как есть */ }
+    // Если пришло экранированное «{\"detail\":...}» — второй проход
+    if (/^['"{]/.test(msg)) {
+      try {
+        const p2 = JSON.parse(msg.replace(/\\"/g, '"').replace(/\\'/g, "'"))
+        if (p2 && typeof p2.detail === 'string') msg = p2.detail
+      } catch { /* не JSON */ }
+    }
+    msg = msg.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    throw new ApiError(res.status, msg || `Ошибка ${res.status}`)
   }
   return res.json() as Promise<T>
 }
