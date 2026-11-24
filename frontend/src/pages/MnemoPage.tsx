@@ -473,8 +473,15 @@ function find(group: FactoryTree, id: string): FactoryTree {
 }
 
 // ============================================================
-// ГЛАВНЫЙ КОМПОНЕНТ: схема + дерево слева + карточка справа
+// ГЛАВНЫЙ КОМПОНЕНТ: СХЕМА НА ВЕСЬ ЭКРАН + выезжающие панели
 // ============================================================
+// Компоновка (пожелание заказчика: «мнемосхема должна быть на весь экран,
+// это самое главное»):
+//   - схема занимает ВСЮ ширину окна контента;
+//   - дерево объектов — выезжающая панель СЛЕВА (кнопка «Объекты»),
+//     поверх схемы, не сжимает её;
+//   - карточка объекта — выезжающая панель СПРАВА при клике на узел,
+//     поверх схемы (как в настоящих SCADA).
 export default function MnemoPage() {
   const role = useAuth((s) => s.user?.role)
   const canTu = role === 'dispatcher' || role === 'admin'
@@ -495,13 +502,19 @@ export default function MnemoPage() {
   // Выбранный объект (для правой панели). Схема ВСЕГДА на месте.
   const [selected, setSelected] = useState<FactoryTree | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [treeOpen, setTreeOpen] = useState(false)      // панель «Объекты»
   const [tuOpen, setTuOpen] = useState(false)
   const [tuObject, setTuObject] = useState('Секционный QF')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; obj: FactoryTree } | null>(null)
 
   function onSelect(obj: FactoryTree) {
-    setSelected(obj)
+    setSelected(obj)      // карточка открывается поверх схемы справа
     setSelectedId(obj.id)
+  }
+
+  function closeCard() {
+    setSelected(null)
+    setSelectedId(null)
   }
 
   function onObjectContextMenu(e: React.MouseEvent, obj: FactoryTree) {
@@ -515,18 +528,28 @@ export default function MnemoPage() {
   return (
     <>
       <style>{blinkStyle}</style>
-      <h2>Мнемосхема — ПС 110/10 кВ</h2>
-      <div className="muted" style={{ marginBottom: 8 }}>
-        Клик по узлу схемы или дереву — детальная карточка объекта.
-        {canTu ? ' ПКМ по аппарату — телеуправление.' : ' ТУ доступно роли dispatcher+.'}
-        {isAdmin ? ' ПКМ — создать аварию (симуляция).' : ''}
+
+      {/* --- Шапка: заголовок + кнопка дерева --- */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <button
+          className="btn"
+          onClick={() => setTreeOpen((v) => !v)}
+          style={{ padding: '4px 12px', whiteSpace: 'nowrap' }}
+          title="Показать/скрыть дерево объектов"
+        >
+          ☰ Объекты
+        </button>
+        <h2 style={{ margin: 0 }}>ПС 110/10 кВ</h2>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Клик по узлу — карточка объекта.{canTu ? ' ПКМ по аппарату — ТУ.' : ''}
+          {isAdmin ? ' ПКМ — создать аварию (симуляция).' : ''}
+        </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr 320px', gap: 14, alignItems: 'start' }}>
-        {/* --- Дерево объектов (слева) --- */}
-        <ObjectTree tree={tree} live={live} selectedId={selectedId} onSelect={onSelect} />
+      {/* --- Контейнер схемы (позиция relative — панели ложатся поверх) --- */}
+      <div style={{ position: 'relative' }}>
 
-        {/* --- Схема (центр, всегда на месте) --- */}
+        {/* === СХЕМА: вся ширина === */}
         <PsScheme
           tree={tree}
           live={live}
@@ -537,23 +560,44 @@ export default function MnemoPage() {
           onObjContextMenu={onObjectContextMenu}
         />
 
-        {/* --- Карточка объекта (справа, при выборе) --- */}
-        <div>
-          {selected ? (
+        {/* === ДЕРЕВО ОБЪЕКТОВ: выезжает слева поверх схемы === */}
+        {treeOpen && (
+          <>
+            {/* Полупрозрачная заслонка: клик вне панели закрывает её */}
+            <div
+              onClick={() => setTreeOpen(false)}
+              style={{ position: 'fixed', inset: 0, zIndex: 40, background: 'rgba(0,0,0,0.25)' }}
+            />
+            <div style={{
+              position: 'absolute', top: 0, left: 0, bottom: 0, width: 270,
+              zIndex: 41, boxShadow: '8px 0 24px rgba(0,0,0,0.35)',
+            }}>
+              <ObjectTree
+                tree={tree}
+                live={live}
+                selectedId={selectedId}
+                onSelect={(obj) => { onSelect(obj); setTreeOpen(false) }}
+              />
+            </div>
+          </>
+        )}
+
+        {/* === КАРТОЧКА ОБЪЕКТА: выезжает справа поверх схемы === */}
+        {selected && (
+          <div style={{
+            position: 'absolute', top: 10, right: 10, width: 330,
+            zIndex: 42, maxHeight: 'calc(100% - 20px)', overflowY: 'auto',
+            boxShadow: '-8px 0 24px rgba(0,0,0,0.35)',
+          }}>
             <ObjectCard
               obj={selected}
               live={live}
               canTu={canTu}
               onTu={(obj) => { setTuObject(obj.name); setTuOpen(true) }}
-              onClose={() => { setSelected(null); setSelectedId(null) }}
+              onClose={closeCard}
             />
-          ) : (
-            <div className="card" style={{ padding: 14, color: '#889', fontSize: 13 }}>
-              Выбери узел на схеме или в дереве слева —
-              здесь появятся его показатели и управление.
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {ctxMenu && (
