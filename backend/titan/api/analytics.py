@@ -41,7 +41,7 @@ async def _load_values(point_code: str, minutes: float) -> list[float]:
     обратная совместимость со старыми графиками/ссылками.
     """
     if ":" not in point_code:
-        point_code = f"tp1_incomer:{point_code}"
+        point_code = f"arm1_incomer:{point_code}"
     since = utcnow() - timedelta(minutes=minutes)
     async with sessionmaker() as session:
         result = await session.execute(
@@ -55,7 +55,7 @@ async def _load_values(point_code: str, minutes: float) -> list[float]:
 async def _load_rows(point_code: str, minutes: float):
     """Загрузить полные записи (время+значение+quality) для экспорта."""
     if ":" not in point_code:
-        point_code = f"tp1_incomer:{point_code}"
+        point_code = f"arm1_incomer:{point_code}"
     since = utcnow() - timedelta(minutes=minutes)
     async with sessionmaker() as session:
         result = await session.execute(
@@ -85,7 +85,7 @@ async def analytics_series(point_code: str, minutes: float = 15,
     async with sessionmaker() as session:
         result = await session.execute(
             select(Measurement.time)
-            .where(Measurement.point_code == (point_code if ":" in point_code else f"tp1_incomer:{point_code}"),
+            .where(Measurement.point_code == (point_code if ":" in point_code else f"arm1_incomer:{point_code}"),
                    Measurement.time >= utcnow() - timedelta(minutes=minutes))
             .order_by(Measurement.time)
         )

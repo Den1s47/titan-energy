@@ -123,7 +123,7 @@ async def _seed_measurements(minutes: int = 30, base: float = 100.0):
     for i in range(minutes * 60):   # 1 Гц
         t = now - timedelta(seconds=minutes * 60 - i)
         value = base + 10 * math.sin(i / 60) + random.uniform(-2, 2)
-        rows.append(Measurement(time=t, point_code="tp1_incomer:P", value=value, quality="good"))
+        rows.append(Measurement(time=t, point_code="arm1_incomer:P", value=value, quality="good"))
     async with sessionmaker() as session:
         session.add_all(rows)
         await session.commit()
