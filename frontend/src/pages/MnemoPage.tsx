@@ -246,7 +246,7 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
   canTu: boolean
   onTu: (obj: FactoryTree) => void
   selectedId: string | null
-  onSelect: (obj: FactoryTree) => void
+  onSelect: (obj: FactoryTree, clickX?: number) => void
   onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
 }) {
   const arm1 = tree.children.find((c) => c.id === 'arm1')!
@@ -272,7 +272,8 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
   const sec2Fed = b2 === 1 || (sectional === 1 && b1 === 1)
   const anyFault = fault1 !== 0 || fault2 !== 0
 
-  /** Кликабельный аппарат на схеме. */
+  /** Кликабельный аппарат на схеме: передаём координату клика — карточка
+   *  откроется с противоположной стороны, не перекрывая место клика. */
   function Apparatus({ x, y, obj, breaker, emergency }: {
     x: number; y: number; obj: FactoryTree; breaker: number; emergency: boolean
   }) {
@@ -281,7 +282,7 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
       <g
         style={{ cursor: 'pointer' }}
         pointerEvents="bounding-box"
-        onClick={() => onSelect(obj)}
+        onClick={(e) => onSelect(obj, e.clientX)}
         onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(obj); onObjContextMenu(e, obj) }}
       >
         <rect
@@ -315,12 +316,12 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
         <line x1={750} y1={97} x2={750} y2={130} stroke="#333" strokeWidth={2.5} />
 
         {/* --- Трансформаторы --- */}
-        <g style={{ cursor: 'pointer' }} onClick={() => onSelect(find(arm1, 'arm1_tr'))}>
+        <g style={{ cursor: 'pointer' }} onClick={(e) => onSelect(find(arm1, 'arm1_tr'), e.clientX)}>
           <circle cx={150} cy={148} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
           <circle cx={150} cy={168} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
           <text x={178} y={162} fontSize={13} fontWeight="bold" fill="#333">T1</text>
         </g>
-        <g style={{ cursor: 'pointer' }} onClick={() => onSelect(find(arm2, 'arm2_tr'))}>
+        <g style={{ cursor: 'pointer' }} onClick={(e) => onSelect(find(arm2, 'arm2_tr'), e.clientX)}>
           <circle cx={750} cy={148} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
           <circle cx={750} cy={168} r={16} fill="none" stroke="#333" strokeWidth={2.5} />
           <text x={778} y={162} fontSize={13} fontWeight="bold" fill="#333">T2</text>
@@ -361,7 +362,7 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
         <g
           style={{ cursor: 'pointer' }}
           pointerEvents="bounding-box"
-          onClick={() => onSelect(secQf)}
+          onClick={(e) => onSelect(secQf, e.clientX)}
           onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(secQf); onObjContextMenu(e, secQf) }}
         >
           <rect
@@ -386,7 +387,7 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
           const cable = cableVisual(sec1Fed, fBad)
           return (
             <g key={f.id} style={{ cursor: 'pointer' }} pointerEvents="bounding-box"
-              onClick={() => onSelect(f)} onContextMenu={(e) => onObjContextMenu(e, f)}>
+              onClick={(e) => onSelect(f, e.clientX)} onContextMenu={(e) => onObjContextMenu(e, f)}>
               <rect x={x - 10} y={340} width={20} height={20} fill={vis.fill} stroke={selectedId === f.id ? COLOR.info : '#333'} strokeWidth={2}
                 className={vis.blink ? 'mnemo-blink' : ''} />
               <line x1={x} y1={300} x2={x} y2={340} stroke={cable.stroke} strokeWidth={2.5}
@@ -411,7 +412,7 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
           const cable = cableVisual(sec2Fed, fBad)
           return (
             <g key={f.id} style={{ cursor: 'pointer' }} pointerEvents="bounding-box"
-              onClick={() => onSelect(f)} onContextMenu={(e) => onObjContextMenu(e, f)}>
+              onClick={(e) => onSelect(f, e.clientX)} onContextMenu={(e) => onObjContextMenu(e, f)}>
               <rect x={x - 10} y={340} width={20} height={20} fill={vis.fill} stroke={selectedId === f.id ? COLOR.info : '#333'} strokeWidth={2}
                 className={vis.blink ? 'mnemo-blink' : ''} />
               <line x1={x} y1={300} x2={x} y2={340} stroke={cable.stroke} strokeWidth={2.5}
@@ -503,13 +504,21 @@ export default function MnemoPage() {
   const [selected, setSelected] = useState<FactoryTree | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [treeOpen, setTreeOpen] = useState(false)      // панель «Объекты»
+  const [cardSide, setCardSide] = useState<'left' | 'right'>('right') // сторона карточки
   const [tuOpen, setTuOpen] = useState(false)
   const [tuObject, setTuObject] = useState('Секционный QF')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; obj: FactoryTree } | null>(null)
 
-  function onSelect(obj: FactoryTree) {
-    setSelected(obj)      // карточка открывается поверх схемы справа
+  function onSelect(obj: FactoryTree, clickX?: number) {
+    setSelected(obj)      // карточка открывается поверх схемы
     setSelectedId(obj.id)
+    // УМНОЕ ПОЗИЦИОНИРОВАНИЕ карточки (чтобы не перекрывала место клика):
+    // клик по ЛЕВОЙ половине схемы -> карточка справа,
+    // клик по ПРАВОЙ половине -> карточка слева (зеркально).
+    if (clickX !== undefined && window.innerWidth > 0) {
+      setCardSide(clickX > window.innerWidth / 2 ? 'left' : 'right')
+    }
+    // клик из дерева (без координат) — карточка остаётся справа
   }
 
   function closeCard() {
@@ -582,10 +591,12 @@ export default function MnemoPage() {
           </>
         )}
 
-        {/* === КАРТОЧКА ОБЪЕКТА: выезжает справа поверх схемы === */}
+        {/* === КАРТОЧКА ОБЪЕКТА: выезжает поверх схемы, сторона зависит
+              от места клика (кликнул справа — карточка слева и наоборот) === */}
         {selected && (
           <div style={{
-            position: 'absolute', top: 10, right: 10, width: 330,
+            position: 'absolute', top: 10,
+            [cardSide]: 10, width: 330,
             zIndex: 42, maxHeight: 'calc(100% - 20px)', overflowY: 'auto',
             boxShadow: '-8px 0 24px rgba(0,0,0,0.35)',
           }}>
