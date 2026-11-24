@@ -89,6 +89,47 @@ export default function AnalyticsPage() {
     refetchInterval: autoRefresh ? REFRESH_MS : false,
   })
 
+  // ---------- НОВОЕ: сводка «здоровья» и сравнение вводов ----------
+  // Сводка КПЭ за период (доступность, аварийность). Для больших периодов
+  // обновляется редко — данные за сутки не меняются каждые 5 секунд.
+  const summaryQuery = useQuery({
+    queryKey: ['analytics-summary', pointCode, minutes],
+    queryFn: () => api.analyticsSummary(pointCode, minutes),
+    refetchInterval: autoRefresh && minutes <= 60 ? REFRESH_MS * 4 : false,
+  })
+
+  // Панель сравнения включается чекбоксом; вторая точка подбирается
+  // автоматически: ввод №1 <-> ввод №2 (плечо А <-> плечо Б).
+  const [compareOn, setCompareOn] = useState(false)
+  const comparePair: Record<string, string> = {
+    'arm1_incomer:P': 'arm2_incomer:P', 'arm2_incomer:P': 'arm1_incomer:P',
+    'arm1_incomer:U': 'arm2_incomer:U', 'arm2_incomer:U': 'arm1_incomer:U',
+    'arm1_incomer:I': 'arm2_incomer:I',
+  }
+  const compareQuery = useQuery({
+    queryKey: ['analytics-compare', pointCode, minutes, compareOn],
+    queryFn: () => api.analyticsCompare(pointCode, comparePair[pointCode] ?? 'arm2_incomer:P', minutes),
+    enabled: compareOn && !!comparePair[pointCode],
+  })
+
+  const compareRef = useEcharts([compareQuery.data], (chart) => {
+    const c = compareQuery.data
+    if (!c) return
+    chart.setOption({
+      title: { text: 'Сравнение вводов №1 (синий) vs №2 (оранжевый)', textStyle: { color: '#d7dae0', fontSize: 14 } },
+      tooltip: { trigger: 'axis' },
+      legend: { textStyle: { color: '#8b93a0' } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider' }],
+      xAxis: { type: 'category', data: c.a.times, axisLabel: { color: '#8b93a0' } },
+      yAxis: { type: 'value', ...yRange([...c.a.values, ...c.b.values]), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
+      series: [
+        { name: c.a.point_code, type: 'line', data: c.a.values, symbol: 'none', lineStyle: { color: '#4d9fff', width: 1.5 } },
+        { name: c.b.point_code, type: 'line', data: c.b.values, symbol: 'none', lineStyle: { color: '#ff9f2e', width: 1.5 } },
+      ],
+      grid: { left: 60, right: 20, top: 40, bottom: 60 },
+    })
+  })
+
   // ---------- Графики ----------
   // Автомасштаб Y: от min-10% до max+10% (НЕ от нуля!) — иначе полезная
   // информация сжимается в полоску (было: U≈230 при шкале 0..250).
@@ -106,6 +147,13 @@ export default function AnalyticsPage() {
     const d = seriesQuery.data
     if (!d) return
     const name = POINTS.find((p) => p.code === pointCode)?.name ?? pointCode
+    // Метки аварий на графике: событие журнала -> вертикальная черта.
+    // Связывает «что случилось» с «как отреагировали параметры».
+    const evMark = (d.events ?? []).slice(0, 30).map((e) => ({
+      xAxis: e.time,
+      label: { formatter: `${e.object_name}: ${e.message}`.slice(0, 60), color: '#ff4444', fontSize: 9, rotate: 90 },
+      lineStyle: { color: e.priority === 'critical' ? '#ff4444' : '#ff9f2e', type: 'dashed', width: 1 },
+    }))
     chart.setOption({
       title: { text: `Временной ряд — ${name}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
@@ -113,7 +161,9 @@ export default function AnalyticsPage() {
       xAxis: { type: 'category', data: d.times, axisLabel: { color: '#8b93a0' } },
       yAxis: { type: 'value', ...yRange(d.values, d.moving_avg), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [
-        { name: pointCode, type: 'line', data: d.values, symbol: 'none', lineStyle: { color: '#4d9fff', width: 1 } },
+        { name: pointCode, type: 'line', data: d.values, symbol: 'none', lineStyle: { color: '#4d9fff', width: 1 },
+          // Метки событий поверх ряда (silent — не мешают тултипу)
+          markLine: evMark.length ? { symbol: 'none', silent: true, data: evMark } : undefined },
         { name: `скользящее среднее (${d.avg_window_s}с)`, type: 'line', data: d.moving_avg, symbol: 'none',
           lineStyle: { color: '#ff9f2e', width: 2.5 } },
       ],
@@ -212,6 +262,10 @@ export default function AnalyticsPage() {
               <option value={5}>5 минут</option>
               <option value={15}>15 минут</option>
               <option value={30}>30 минут</option>
+              <option value={60}>1 час</option>
+              <option value={480}>8 часов</option>
+              <option value={1440}>Сутки</option>
+              <option value={10080}>7 дней</option>
             </select>
           </label>
           <label>
@@ -236,7 +290,37 @@ export default function AnalyticsPage() {
             Обновление 5 с
           </label>
         </div>
+        {/* Сравнение вводов (для точек ввода 1<->2 доступна пара) */}
+        {comparePair[pointCode] && (
+          <label style={{ marginTop: 8, display: 'inline-block' }}>
+            <input
+              type="checkbox"
+              checked={compareOn}
+              onChange={(e) => setCompareOn(e.target.checked)}
+              style={{ marginRight: 6 }}
+            />
+            Сравнить с {comparePair[pointCode]} (второй ввод)
+          </label>
+        )}
       </div>
+
+      {/* ---------- Сводка «здоровья» за период (КПЭ) ---------- */}
+      {summaryQuery.data && (
+        <div className="tiles" style={{ marginBottom: 16 }}>
+          <div className="tile">
+            <div className="label">Доступность за период</div>
+            <div className="value" style={{ color: summaryQuery.data.availability_pct >= 99 ? 'var(--ok, #35c46a)' : '#ff9f2e' }}>
+              {summaryQuery.data.availability_pct.toFixed(1)} %
+            </div>
+          </div>
+          <div className="tile"><div className="label">Событий всего</div>
+            <div className="value" style={{ color: 'var(--text)' }}>{summaryQuery.data.alarms_total}</div></div>
+          <div className="tile"><div className="label">Критических аварий</div>
+            <div className="value" style={{ color: summaryQuery.data.alarms_critical ? '#ff4444' : 'var(--ok, #35c46a)' }}>
+              {summaryQuery.data.alarms_critical}
+            </div></div>
+        </div>
+      )}
 
       {/* ---------- Статистика ряда (ТЗ: Макс/Мин/среднее для каждой переменной) ---------- */}
       {stats && (
@@ -254,6 +338,9 @@ export default function AnalyticsPage() {
 
       {/* ---------- Графики ---------- */}
       <div className="card"><div ref={seriesRef} style={{ height: 300 }} /></div>
+      {compareOn && comparePair[pointCode] && (
+        <div className="card"><div ref={compareRef} style={{ height: 280 }} /></div>
+      )}
       <div className="card"><div ref={shewhartRef} style={{ height: 260 }} /></div>
       <div className="row" style={{ alignItems: 'stretch' }}>
         <div className="card" style={{ flex: 1 }}><div ref={histRef} style={{ height: 240 }} /></div>

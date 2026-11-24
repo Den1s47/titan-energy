@@ -132,7 +132,27 @@ export interface AnalyticsSeries {
   values: number[]
   moving_avg: (number | null)[]
   avg_window_s: number
+  aggregated?: boolean
   stats: SeriesStats
+  /** События журнала за тот же период — для меток аварий на графике. */
+  events?: Array<{ time: string; priority: string; cls: string; object_name: string; message: string }>
+}
+
+/** Сводка «здоровья» объекта за период (панель КПЭ аналитики). */
+export interface AnalyticsSummary {
+  point_code: string
+  period_minutes: number
+  availability_pct: number
+  stats: SeriesStats
+  alarms_total: number
+  alarms_critical: number
+}
+
+/** Сравнение двух точек (одинаковые окна агрегации). */
+export interface CompareData {
+  bucket_s: number
+  a: { point_code: string; times: string[]; values: number[] }
+  b: { point_code: string; times: string[]; values: number[] }
 }
 
 export interface HistogramStats {
@@ -250,6 +270,15 @@ export const api = {
   analyticsCusum: (pointCode: string, minutes: number, target: number) =>
     apiFetch<{ point_code: string; target: number; values: number[] }>(
       `/api/analytics/cusum?point_code=${pointCode}&minutes=${minutes}&target=${target}`),
+
+  /** Сводка «здоровья» за период (доступность, min/max/avg, число аварий). */
+  analyticsSummary: (pointCode: string, minutes: number) =>
+    apiFetch<AnalyticsSummary>(`/api/analytics/summary?point_code=${pointCode}&minutes=${minutes}`),
+
+  /** Сравнение двух точек (ввод №1 vs №2) в одинаковых окнах агрегации. */
+  analyticsCompare: (pointA: string, pointB: string, minutes: number) =>
+    apiFetch<CompareData>(
+      `/api/analytics/compare?point_a=${pointA}&point_b=${pointB}&minutes=${minutes}`),
 
   /** Ссылка на экспорт (открывается браузером как скачивание файла). */
   exportCsvUrl: (pointCode: string, minutes: number) =>
