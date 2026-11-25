@@ -256,6 +256,67 @@ export default function AnalyticsPage() {
     chart.on('datazoom', handler)
   }
 
+  // ---------- CTRL-ЗУМ РАМКОЙ (как просил заказчик) ----------
+  // Зажал Ctrl → тянешь мышкой прямоугольник по графику → отпустил →
+  // выделенный диапазон оси X растягивается на весь график.
+  // Свой полупрозрачный оверлей поверх контейнера (координаты пикселей
+  // переводим в индексы оси через convertFromPixel).
+  const ctrlZoomRef = useRef<HTMLDivElement>(null)
+  const [ctrlRect, setCtrlRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const dragStart = useRef<{ x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    const el = ctrlZoomRef.current
+    if (!el) return
+    const chart = echarts.getInstanceByDom(el)
+
+    function onDown(e: MouseEvent) {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      dragStart.current = { x: e.offsetX, y: e.offsetY }
+      setCtrlRect({ x: e.offsetX, y: e.offsetY, w: 0, h: 0 })
+    }
+    function onMove(e: MouseEvent) {
+      if (!dragStart.current) return
+      setCtrlRect({
+        x: Math.min(dragStart.current.x, e.offsetX),
+        y: Math.min(dragStart.current.y, e.offsetY),
+        w: Math.abs(e.offsetX - dragStart.current.x),
+        h: Math.abs(e.offsetY - dragStart.current.y),
+      })
+    }
+    function onUp(e: MouseEvent) {
+      if (!dragStart.current) return
+      const start = dragStart.current
+      dragStart.current = null
+      setCtrlRect(null)
+      const x1 = start.x, x2 = e.offsetX
+      if (Math.abs(x2 - x1) < 10) return   // случайный клик — игнор
+      // Пиксели -> индексы категории оси X
+      const idx1 = (chart as echarts.ECharts).convertFromPixel({ xAxisIndex: 0 }, x1) as number
+      const idx2 = (chart as echarts.ECharts).convertFromPixel({ xAxisIndex: 0 }, x2) as number
+      const lo = Math.max(0, Math.floor(Math.min(idx1, idx2)))
+      const hi = Math.ceil(Math.max(idx1, idx2))
+      if (hi - lo < 2) return
+      // Растягиваем выделенное на весь график (dataZoom in percent)
+      ;(chart as echarts.ECharts).dispatchAction({
+        type: 'dataZoom',
+        startValue: lo,
+        endValue: hi,
+      })
+    }
+    el.addEventListener('mousedown', onDown)
+    el.addEventListener('mousemove', onMove)
+    el.addEventListener('mouseup', onUp)
+    el.addEventListener('mouseleave', () => { dragStart.current = null; setCtrlRect(null) })
+    return () => {
+      el.removeEventListener('mousedown', onDown)
+      el.removeEventListener('mousemove', onMove)
+      el.removeEventListener('mouseup', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesQuery.data])
+
   const seriesRef = useEcharts([seriesQuery.data], (chart) => {
     const d = seriesQuery.data
     if (!d) return
@@ -287,21 +348,25 @@ export default function AnalyticsPage() {
     chart.setOption({
       title: { text: `Временной ряд — ${name}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
-      // ЗУМ «КАК НА БИРЖЕ» (замечание проверяющих):
-      //  - toolbox: значок «зум рамкой» — зажал мышкой, выделил участок,
-      //    отпустил → участок растянут на весь график;
-      //  - inside: зум колесом и панорама перетаскиванием;
-      //  - slider: ползунок внизу; «Сброс» возвращает весь диапазон.
+      // ЗУМ «КАК НА БИРЖЕ» (замечание проверяющих + правка заказчика):
+      //  - Ctrl + выделение мышкой: зажал Ctrl, тянешь рамкой участок →
+      //    отпустил → участок растянут на весь график (как просил заказчик);
+      //  - просто перетаскивание мышью (без Ctrl) = панорама;
+      //  - колесо = зум вокруг курсора;
+      //  - slider снизу + кнопка «Сброс».
+      // Реализация: рамочный зум делаем СВОИМ оверлеем (слушаем mousedown на
+      // контейнере при зажатом Ctrl), т.к. штатный toolbox-zum рамкой не
+      // умеет требовать Ctrl.
       toolbox: {
         right: 10, top: 4,
         feature: {
-          dataZoom: { yAxisIndex: 'none', title: { zoom: 'Зум рамкой', back: 'Сброс зума' } },
           restore: { title: 'Сброс' },
         },
         iconStyle: { borderColor: '#8b93a0' },
       },
       dataZoom: [
-        { type: 'inside', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        { type: 'inside', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false,
+          filterMode: 'none' },
         { type: 'slider', height: 28, bottom: 8 },
       ],
       // СЕТКА + короткое время: HH:MM:SS; при периоде >1 суток — «25.11 13:32»
@@ -503,7 +568,18 @@ export default function AnalyticsPage() {
       )}
 
       {/* ---------- Графики ---------- */}
-      <div className="card"><div ref={seriesRef} style={{ height: 300 }} /></div>
+      <div ref={ctrlZoomRef} style={{ position: 'relative', cursor: 'crosshair' }} title="Ctrl + выделение мышкой = зум; колесо = зум; перетаскивание = панорама">
+        <div className="card"><div ref={seriesRef} style={{ height: 300 }} /></div>
+        {/* Рамка выделения при Ctrl-зуме */}
+        {ctrlRect && (
+          <div style={{
+            position: 'absolute', left: ctrlRect.x, top: ctrlRect.y,
+            width: ctrlRect.w, height: ctrlRect.h,
+            border: '1.5px dashed #4d9fff', background: 'rgba(77,159,255,0.15)',
+            pointerEvents: 'none', zIndex: 10,
+          }} />
+        )}
+      </div>
       {compareOn && comparePair[pointCode] && (
         <div className="card"><div ref={compareRef} style={{ height: 280 }} /></div>
       )}
