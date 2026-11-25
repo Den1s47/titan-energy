@@ -268,21 +268,36 @@ export default function AnalyticsPage() {
   useEffect(() => {
     const el = ctrlZoomRef.current
     if (!el) return
-    const chart = echarts.getInstanceByDom(el)
+    const container: HTMLElement = el
+    // График создаётся в useEcharts на этом же элементе-родителе — берём
+    // инстанс лениво в момент события (а не один раз при монтировании,
+    // когда графика ещё нет — из-за этого зум не работал).
+    function getChart(): echarts.ECharts | null {
+      return echarts.getInstanceByDom(container) ?? null
+    }
+    // Координаты события относительно контейнера (e.offsetX ведёт отсчёт
+    // от внутреннего элемента под курсором — у canvas другой offsetParent,
+    // из-за этого рамка рисовалась со смещением и зум бил мимо).
+    function relPos(e: MouseEvent): { x: number; y: number } {
+      const rect = container.getBoundingClientRect()
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
 
     function onDown(e: MouseEvent) {
       if (!e.ctrlKey) return
       e.preventDefault()
-      dragStart.current = { x: e.offsetX, y: e.offsetY }
-      setCtrlRect({ x: e.offsetX, y: e.offsetY, w: 0, h: 0 })
+      e.stopPropagation()
+      dragStart.current = relPos(e)
+      setCtrlRect({ x: dragStart.current.x, y: dragStart.current.y, w: 0, h: 0 })
     }
     function onMove(e: MouseEvent) {
       if (!dragStart.current) return
+      const p = relPos(e)
       setCtrlRect({
-        x: Math.min(dragStart.current.x, e.offsetX),
-        y: Math.min(dragStart.current.y, e.offsetY),
-        w: Math.abs(e.offsetX - dragStart.current.x),
-        h: Math.abs(e.offsetY - dragStart.current.y),
+        x: Math.min(dragStart.current.x, p.x),
+        y: Math.min(dragStart.current.y, p.y),
+        w: Math.abs(p.x - dragStart.current.x),
+        h: Math.abs(p.y - dragStart.current.y),
       })
     }
     function onUp(e: MouseEvent) {
@@ -290,19 +305,27 @@ export default function AnalyticsPage() {
       const start = dragStart.current
       dragStart.current = null
       setCtrlRect(null)
-      const x1 = start.x, x2 = e.offsetX
-      if (Math.abs(x2 - x1) < 10) return   // случайный клик — игнор
-      // Пиксели -> индексы категории оси X
-      const idx1 = (chart as echarts.ECharts).convertFromPixel({ xAxisIndex: 0 }, x1) as number
-      const idx2 = (chart as echarts.ECharts).convertFromPixel({ xAxisIndex: 0 }, x2) as number
-      const lo = Math.max(0, Math.floor(Math.min(idx1, idx2)))
-      const hi = Math.ceil(Math.max(idx1, idx2))
+      const chart = getChart()
+      if (!chart) return
+      const p = relPos(e)
+      if (Math.abs(p.x - start.x) < 10) return   // случайный клик — игнор
+      // Пиксели -> значения оси X (value по категории = индекс)
+      const idx1 = chart.convertFromPixel({ xAxisIndex: 0 }, [start.x, start.y])[0] as number
+      const idx2 = chart.convertFromPixel({ xAxisIndex: 0 }, [p.x, p.y])[0] as number
+      const n = (chart.getOption() as { xAxis?: Array<{ data?: string[] }> }).xAxis?.[0]?.data?.length ?? 0
+      let lo = Math.max(0, Math.floor(Math.min(idx1, idx2)))
+      let hi = Math.min(n - 1, Math.ceil(Math.max(idx1, idx2)))
       if (hi - lo < 2) return
-      // Растягиваем выделенное на весь график (dataZoom in percent)
-      ;(chart as echarts.ECharts).dispatchAction({
+      // Растягиваем выделенное на весь график — ВАЖНО: dataZoom-акция
+      // принимает batch [{start, end}] в процентах (startValue на верхнем
+      // уровне не применялся — вторая причина неработавшего зума).
+      const total = Math.max(1, n - 1)
+      chart.dispatchAction({
         type: 'dataZoom',
-        startValue: lo,
-        endValue: hi,
+        batch: [{
+          start: (lo / total) * 100,
+          end: (hi / total) * 100,
+        }],
       })
     }
     el.addEventListener('mousedown', onDown)
@@ -315,7 +338,7 @@ export default function AnalyticsPage() {
       el.removeEventListener('mouseup', onUp)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesQuery.data])
+  }, [])
 
   const seriesRef = useEcharts([seriesQuery.data], (chart) => {
     const d = seriesQuery.data
