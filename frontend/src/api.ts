@@ -194,6 +194,8 @@ export interface ShewhartData {
   lcl: number
   points: number[]
   out_of_control: number[]
+  /** Метки времени точек (когда была аномалия) — опционально. */
+  times?: string[]
 }
 
 // ---------- Конкретные вызовы API ----------

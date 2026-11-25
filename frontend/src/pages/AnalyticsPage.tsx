@@ -197,11 +197,15 @@ export default function AnalyticsPage() {
     // Точки выхода из-под контроля — красные (остальные синие)
     const pointData = s.points.map((v, i) =>
       s.out_of_control.includes(i) ? { value: v, itemStyle: { color: '#ff4444' } } : v)
+    // Подписи точек Шухарта — ВРЕМЯ (пожелание заказчика: «нельзя посмотреть,
+    // когда аномалия была»). Время приходит отдельным массивом; если его нет
+    // (старый бэкенд) — индексы точек.
+    const xLabels = s.times ?? s.points.map((_, i) => String(i))
     chart.setOption({
       title: { text: 'Карта Шухарта (CL ± 3σ)', textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }],
-      xAxis: { type: 'category', data: s.points.map((_, i) => i), axisLabel: { color: '#8b93a0' } },
+      xAxis: { type: 'category', data: xLabels, axisLabel: { color: '#8b93a0' } },
       // Автомасштаб с учётом границ UCL/LCL (иначе линии уходят за экран)
       yAxis: { type: 'value', ...yRange(s.points, [s.ucl, s.lcl]), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [{

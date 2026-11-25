@@ -16,6 +16,7 @@ import { api, type FactoryTree } from '../api'
 
 // Шаблоны аварий: id API -> подпись + пояснение + класс кнопки
 const SCENARIOS: { id: string; label: string; hint: string; css: string }[] = [
+  { id: 'line_loss_110', label: 'Потеря ввода 110 кВ', hint: 'Плечо обесточено целиком; переброс через секционный QF. Только на вводах 110 кВ!', css: 'danger' },
   { id: 'short_circuit', label: 'КЗ (МТЗ)', hint: 'Ток ×6, отключение ввода, осциллограмма', css: 'danger' },
   { id: 'overload', label: 'Перегрузка', hint: 'Ток/мощность за границы — оранжевые плитки', css: 'warn' },
   { id: 'overvoltage', label: 'Перенапряжение', hint: 'U → 460 В', css: 'warn' },

@@ -195,9 +195,25 @@ async def analytics_histogram(point_code: str, minutes: float = 15,
 @router.get("/analytics/shewhart")
 async def analytics_shewhart(point_code: str, minutes: float = 15,
                              user: dict = Depends(require_role("viewer"))) -> dict:
-    """Контрольная карта Шухарта: CL ± 3σ, точки выхода из-под контроля."""
+    """Контрольная карта Шухарта: CL ± 3σ, точки выхода из-под контроля.
+
+    Вместе с точками отдаётся times[] — метки времени каждой точки (пожелание
+    заказчика: на аномалии должно быть видно, КОГДА они были).
+    """
     values = await _load_values(point_code, minutes)
-    return shewhart_zones(values)
+    result = shewhart_zones(values)
+    # Метки времени: грузим тем же запросом, что и значения (тот же период)
+    if ":" not in point_code:
+        point_code = f"arm1_incomer:{point_code}"
+    async with sessionmaker() as session:
+        db_result = await session.execute(
+            select(Measurement.time)
+            .where(Measurement.point_code == point_code,
+                   Measurement.time >= utcnow() - timedelta(minutes=minutes))
+            .order_by(Measurement.time)
+        )
+        result["times"] = [fmt_iso_ms(t) for (t,) in db_result.all()]
+    return result
 
 
 @router.get("/analytics/cusum")
@@ -278,9 +294,18 @@ async def analytics_summary(point_code: str, minutes: float = 1440,
     s = basic_stats(values) if values else {"count": 0}
     is_breaker = point_code.upper().endswith(":BREAKER")
 
-    # Доступность: по BREAKER — доля времени во включённом состоянии;
-    # по качеству — доля «good»-отсчётов (suspect/bad = деградация).
-    if is_breaker and values:
+    # Доступность (пентест-правка 24.11: раньше всегда ~100%, т.к. при
+    # авариях качество оставалось good, а BREAKER не учитывался):
+    #   1) для точки ввода: доступность = доля времени, когда ввод ВКЛЮЧЕН
+    #      и есть напряжение (BREAKER=1 И U>5% номинала);
+    #   2) для прочих точек — доля «good»-отсчётов.
+    # Плюс вычитаются интервалы аварий (events cls=alarm/abnormal): авария
+    # сработала -> объект «недоступен» до восстановления.
+    if values and point_code.endswith("_incomer:U"):
+        # доля времени с напряжением > 5% номинала (обесточено = недоступен)
+        uptime = sum(1 for v in values if v > 11.0)   # 10 кВ / 230 В: >11 В = жив
+        availability = uptime / len(values) * 100.0
+    elif is_breaker and values:
         availability = sum(1 for v in values if v >= 0.5) / len(values) * 100.0
     elif values:
         async with sessionmaker() as session:
@@ -293,6 +318,15 @@ async def analytics_summary(point_code: str, minutes: float = 1440,
         availability = sum(1 for q in quals if q == "good") / len(quals) * 100.0 if quals else 0.0
     else:
         availability = 0.0
+
+    # Учитываем аварии за период: каждая аларм-секция уменьшает доступность.
+    # Оценка консервативна: авария «стоит» минимум 5 с недоступности (средняя
+    # длительность срабатывания/переброса на реальной ПС того же порядка).
+    alarm_events = [e for e in events if e["cls"] == "alarm"]
+    if values and alarm_events:
+        period_s = minutes * 60
+        outage_s = min(len(alarm_events) * 5.0, period_s)  # не более периода
+        availability = max(0.0, availability - outage_s / period_s * 100.0)
 
     return {
         "point_code": point_code,
