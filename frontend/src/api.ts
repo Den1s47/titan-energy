@@ -291,7 +291,7 @@ export const api = {
   analyticsShewhart: (pointCode: string, minutes: number) =>
     apiFetch<ShewhartData>(`/api/analytics/shewhart?point_code=${pointCode}&minutes=${minutes}`),
   analyticsCusum: (pointCode: string, minutes: number, target: number) =>
-    apiFetch<{ point_code: string; target: number; values: number[] }>(
+    apiFetch<{ point_code: string; target: number; values: number[]; times?: string[] }>(
       `/api/analytics/cusum?point_code=${pointCode}&minutes=${minutes}&target=${target}`),
 
   /** Сводка «здоровья» за период (доступность, min/max/avg, число аварий). */

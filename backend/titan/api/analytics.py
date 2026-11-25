@@ -220,9 +220,24 @@ async def analytics_shewhart(point_code: str, minutes: float = 15,
 async def analytics_cusum(point_code: str, minutes: float = 15,
                           target: float = 0.0,
                           user: dict = Depends(require_role("viewer"))) -> dict:
-    """Карта кумулятивных сумм от целевого значения (baseline, ТЗ «КПЭ»)."""
+    """Карта кумулятивных сумм от целевого значения (baseline, ТЗ «КПЭ»).
+
+    Вместе со значениями отдаётся times[] — метки времени точек (как у
+    Шухарта: на отклонение должно быть видно, КОГДА оно происходило).
+    """
+    if ":" not in point_code:
+        point_code = f"arm1_incomer:{point_code}"
     values = await _load_values(point_code, minutes)
-    return {"point_code": point_code, "target": target, "values": cusum_fn(values, target)}
+    async with sessionmaker() as session:
+        db_result = await session.execute(
+            select(Measurement.time)
+            .where(Measurement.point_code == point_code,
+                   Measurement.time >= utcnow() - timedelta(minutes=minutes))
+            .order_by(Measurement.time)
+        )
+        times = [fmt_iso_ms(t) for (t,) in db_result.all()]
+    return {"point_code": point_code, "target": target,
+            "values": cusum_fn(values, target), "times": times}
 
 
 @router.get("/export/csv")

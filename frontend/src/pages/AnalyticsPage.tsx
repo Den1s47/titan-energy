@@ -256,11 +256,14 @@ export default function AnalyticsPage() {
   const cusumRef = useEcharts([cusumQuery.data], (chart) => {
     const c = cusumQuery.data
     if (!c) return
+    // Ось X — ВРЕМЯ (как у Шухарта): на отклонение видно, когда оно было.
+    // Если меток нет (старый бэкенд) — индексы точек.
+    const xLabels = c.times ?? c.values.map((_, i) => String(i))
     chart.setOption({
       title: { text: `CUSUM (цель = ${Math.round(c.target)} — среднее ряда)`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }],
-      xAxis: { type: 'category', data: c.values.map((_, i) => i), axisLabel: { color: '#8b93a0' } },
+      xAxis: { type: 'category', data: xLabels, axisLabel: { color: '#8b93a0' } },
       yAxis: { type: 'value', ...yRange(c.values), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
       series: [{ type: 'line', data: c.values, symbol: 'none', lineStyle: { color: '#ff9f2e', width: 2 },
         markLine: { symbol: 'none', data: [{ yAxis: 0, label: { formatter: 'baseline' } }] } }],
