@@ -150,9 +150,116 @@ export default function AnalyticsPage() {
     return { min: Math.floor((lo - pad) * 10) / 10, max: Math.ceil((hi + pad) * 10) / 10 }
   }
 
+  // ---------- РЕАКТИВНЫЙ ЗУМ «КАК НА БИРЖЕ» (замечание проверяющих) ----------
+  // При зуме/панораме графика пересчитываем ВСЁ по видимому окну:
+  //   - ось Y автомасштабируется под видимые данные (а не под весь ряд);
+  //   - скользящее среднее пересчитывается под новый масштаб;
+  //   - Шухарт (CL±3σ) пересчитывается по видимому диапазону.
+  // Слушаем событие datazoom и перестраиваем опции на месте.
+  function attachAdaptiveZoom(
+    chart: echarts.ECharts,
+    getBase: () => { times: string[]; values: Array<number | null | undefined>; ma?: Array<number | null | undefined>; events?: Array<{ time: string; priority: string; object_name: string; message: string }> } | null,
+    pointCode: string,
+  ) {
+    const handler = () => {
+      const base = getBase()
+      if (!base) return
+      const opt = chart.getOption() as {
+        dataZoom?: Array<{ start?: number; end?: number; startValue?: unknown; endValue?: unknown }>
+        xAxis?: Array<{ data?: string[] }>
+      }
+      const dz = opt.dataZoom?.[0]
+      if (!dz) return
+      // Видимое окно в индексах оси
+      const n = base.times.length
+      let i0 = 0, i1 = n - 1
+      if (dz.startValue !== undefined && dz.endValue !== undefined) {
+        i0 = base.times.indexOf(String(dz.startValue))
+        i1 = base.times.indexOf(String(dz.endValue))
+        if (i0 < 0) i0 = 0
+        if (i1 < 0) i1 = n - 1
+      } else if (dz.start !== undefined && dz.end !== undefined) {
+        i0 = Math.floor((dz.start / 100) * (n - 1))
+        i1 = Math.ceil((dz.end / 100) * (n - 1))
+      }
+      if (i1 <= i0) return
+      const view = base.values.slice(i0, i1 + 1)
+      const viewMa = base.ma ? base.ma.slice(i0, i1 + 1) : undefined
+      // Y-шкала ТОЛЬКО по видимому окну (как на бирже)
+      const yr = yRange(view, viewMa)
+      // Скользящее среднее пересчитывается под масштаб видимого окна
+      const zoomSpan = i1 - i0
+      const newWindow = Math.max(1, Math.min(300, Math.round(zoomSpan / 30)))
+      const recomputedMa = view
+        ? (function () {
+            // простое скользящее среднее по окну, посчитанному от видимого диапазона
+            const out: Array<number | null> = []
+            let sum = 0
+            let cnt = 0
+            const nums = view.map((v) => (typeof v === 'number' ? v : null))
+            for (let i = 0; i < nums.length; i++) {
+              const v = nums[i]
+              if (v !== null) { sum += v; cnt += 1 }
+              if (i >= newWindow) {
+                const old = nums[i - newWindow]
+                if (old !== null) { sum -= old; cnt -= 1 }
+              }
+              out.push(cnt ? sum / cnt : null)
+            }
+            return out
+          })()
+        : []
+      // Шухарт по видимому окну: CL±3σ от видимых значений
+      const finite = view.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+      let markLines = undefined
+      if (finite.length > 5) {
+        const mean = finite.reduce((a, b) => a + b, 0) / finite.length
+        const std = Math.sqrt(finite.reduce((a, b) => a + (b - mean) ** 2, 0) / finite.length)
+        const ucl = mean + 3 * std
+        const lcl = mean - 3 * std
+        markLines = {
+          symbol: 'none', silent: true,
+          data: [
+            { yAxis: ucl, label: { formatter: `UCL +3σ = ${ucl.toFixed(1)}`, color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
+            { yAxis: mean, label: { formatter: `CL = ${mean.toFixed(1)}`, color: '#35c46a' }, lineStyle: { color: '#35c46a' } },
+            { yAxis: lcl, label: { formatter: `LCL −3σ = ${lcl.toFixed(1)}`, color: '#ff4444' }, lineStyle: { color: '#ff4444' } },
+          ],
+        }
+      }
+      // Метки аварий, попадающие в видимое окно
+      const viewTimes = new Set(base.times.slice(i0, i1 + 1))
+      const evMarks = (base.events ?? [])
+        .map((e) => {
+          // привязка к ближайшей точке оси (см. комментарий выше)
+          const target = Date.parse(e.time)
+          let best: string | null = null
+          let bestDiff = Infinity
+          for (const ax of base.times) {
+            const diff = Math.abs(Date.parse(ax) - target)
+            if (diff < bestDiff) { bestDiff = diff; best = ax }
+          }
+          return best && viewTimes.has(best)
+            ? { xAxis: best, label: { formatter: `${e.object_name}: ${e.message}`.slice(0, 60), color: '#ff4444', fontSize: 9, rotate: 90 },
+                lineStyle: { color: e.priority === 'critical' ? '#ff4444' : '#ff9f2e', type: 'dashed', width: 1 } }
+            : null
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null)
+      chart.setOption({
+        yAxis: { min: yr.min, max: yr.max },
+        series: [
+          { name: pointCode, markLine: evMarks.length ? { symbol: 'none', silent: true, data: evMarks } : (markLines ?? undefined) },
+          { name: `скользящее среднее`, data: [...new Array(i0).fill(null), ...recomputedMa, ...new Array(n - i1 - 1).fill(null)] },
+        ],
+      })
+    }
+    chart.off('datazoom')
+    chart.on('datazoom', handler)
+  }
+
   const seriesRef = useEcharts([seriesQuery.data], (chart) => {
     const d = seriesQuery.data
     if (!d) return
+    attachAdaptiveZoom(chart, () => d, pointCode)
     const name = POINTS.find((p) => p.code === pointCode)?.name ?? pointCode
     // Метки аварий на графике: событие журнала -> вертикальная черта.
     // ВАЖНО: ось X категория, markLine работает только при ТОЧНОМ совпадении
@@ -180,9 +287,39 @@ export default function AnalyticsPage() {
     chart.setOption({
       title: { text: `Временной ряд — ${name}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
-      dataZoom: [{ type: 'inside' }, { type: 'slider' }],   // зум мышью (ТЗ)
-      xAxis: { type: 'category', data: d.times, axisLabel: { color: '#8b93a0' } },
+      // ЗУМ «КАК НА БИРЖЕ» (замечание проверяющих):
+      //  - toolbox: значок «зум рамкой» — зажал мышкой, выделил участок,
+      //    отпустил → участок растянут на весь график;
+      //  - inside: зум колесом и панорама перетаскиванием;
+      //  - slider: ползунок внизу; «Сброс» возвращает весь диапазон.
+      toolbox: {
+        right: 10, top: 4,
+        feature: {
+          dataZoom: { yAxisIndex: 'none', title: { zoom: 'Зум рамкой', back: 'Сброс зума' } },
+          restore: { title: 'Сброс' },
+        },
+        iconStyle: { borderColor: '#8b93a0' },
+      },
+      dataZoom: [
+        { type: 'inside', zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: false },
+        { type: 'slider', height: 28, bottom: 8 },
+      ],
+      // СЕТКА + короткое время: HH:MM:SS; при периоде >1 суток — «25.11 13:32»
+      xAxis: {
+        type: 'category', data: d.times,
+        axisLabel: {
+          color: '#8b93a0',
+          hideOverlap: true,
+          formatter: (t: string) => {
+            const m = t.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+            if (!m) return t
+            return minutes >= 1440 ? `${m[3]}.${m[2]} ${m[4]}:${m[5]}` : `${m[4]}:${m[5]}`
+          },
+        },
+        axisLine: { lineStyle: { color: '#555b66' } },
+      },
       yAxis: { type: 'value', ...yRange(d.values, d.moving_avg), axisLabel: { color: '#8b93a0' }, splitLine: { lineStyle: { color: '#363b44' } } },
+      grid: { left: 60, right: 20, top: 40, bottom: 70, show: true, backgroundColor: 'rgba(255,255,255,0.02)' },
       series: [
         { name: pointCode, type: 'line', data: d.values, symbol: 'none', lineStyle: { color: '#4d9fff', width: 1 },
           // Метки событий поверх ряда (silent — не мешают тултипу)
@@ -191,7 +328,6 @@ export default function AnalyticsPage() {
           lineStyle: { color: '#ff9f2e', width: 2.5 } },
       ],
       legend: { textStyle: { color: '#8b93a0' } },
-      grid: { left: 60, right: 20, top: 40, bottom: 60 },
     })
   })
 
