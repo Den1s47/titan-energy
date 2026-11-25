@@ -148,12 +148,28 @@ export default function AnalyticsPage() {
     if (!d) return
     const name = POINTS.find((p) => p.code === pointCode)?.name ?? pointCode
     // Метки аварий на графике: событие журнала -> вертикальная черта.
-    // Связывает «что случилось» с «как отреагировали параметры».
+    // ВАЖНО: ось X категория, markLine работает только при ТОЧНОМ совпадении
+    // времени события с меткой оси. Для агрегированных рядов (сутки @ 5 мин)
+    // секунда-в-секунду совпадений нет -> привязываем событие к БЛИЖАЙШЕЙ
+    // точке оси (баг «пунктиров нет вообще», найден в прогонке демо).
+    const axisTimes = d.times
+    const snapToAxis = (t: string): string | null => {
+      if (!axisTimes.length) return null
+      if (axisTimes.includes(t)) return t
+      const target = Date.parse(t)
+      let best: string | null = null
+      let bestDiff = Infinity
+      for (const ax of axisTimes) {
+        const diff = Math.abs(Date.parse(ax) - target)
+        if (diff < bestDiff) { bestDiff = diff; best = ax }
+      }
+      return best
+    }
     const evMark = (d.events ?? []).slice(0, 30).map((e) => ({
-      xAxis: e.time,
+      xAxis: snapToAxis(e.time),
       label: { formatter: `${e.object_name}: ${e.message}`.slice(0, 60), color: '#ff4444', fontSize: 9, rotate: 90 },
       lineStyle: { color: e.priority === 'critical' ? '#ff4444' : '#ff9f2e', type: 'dashed', width: 1 },
-    }))
+    })).filter((m) => m.xAxis !== null)
     chart.setOption({
       title: { text: `Временной ряд — ${name}`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
@@ -312,12 +328,12 @@ export default function AnalyticsPage() {
       {summaryQuery.data && (
         <div className="tiles" style={{ marginBottom: 16 }}>
           <div className="tile">
-            <div className="label">Доступность за период</div>
+            <div className="label">Доступность {minutes >= 1440 ? 'за сутки' : minutes >= 60 ? `за ${minutes / 60} ч` : `за ${minutes} мин`}</div>
             <div className="value" style={{ color: summaryQuery.data.availability_pct >= 99 ? 'var(--ok, #35c46a)' : '#ff9f2e' }}>
               {summaryQuery.data.availability_pct.toFixed(1)} %
             </div>
           </div>
-          <div className="tile"><div className="label">Событий всего</div>
+          <div className="tile"><div className="label">Событий {minutes >= 1440 ? 'за сутки' : minutes >= 60 ? `за ${minutes / 60} ч` : `за ${minutes} мин`}</div>
             <div className="value" style={{ color: 'var(--text)' }}>{summaryQuery.data.alarms_total}</div></div>
           <div className="tile"><div className="label">Критических аварий</div>
             <div className="value" style={{ color: summaryQuery.data.alarms_critical ? '#ff4444' : 'var(--ok, #35c46a)' }}>
