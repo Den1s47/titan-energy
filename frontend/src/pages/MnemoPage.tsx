@@ -175,6 +175,15 @@ function ObjectCard({ obj, live, canTu, onTu, onClose }: {
   ]
   const tuTarget = obj.kind === 'incomer10' || obj.kind === 'sectional' || obj.kind === 'incomer'
 
+  // Секционный QF сам по себе телеметрии не имеет (только состояние вкл/выкл).
+  // Показываем КОНТЕКСТ переброса: значения обеих секций (вводы 10 кВ) —
+  // оператор сразу видит, что секция обесточенного плеча запитана «через СВ».
+  const isSectional = obj.kind === 'sectional'
+  const ctxRows: Array<[string, number, string]> = isSectional ? [
+    ['Ввод 10 кВ №1 (Секция I)', val(live, 'arm1_incomer', 'P'), `U=${Math.round(val(live, 'arm1_incomer', 'U'))} В · I=${Math.round(val(live, 'arm1_incomer', 'I'))} А · P=${Math.round(val(live, 'arm1_incomer', 'P'))} кВт`],
+    ['Ввод 10 кВ №2 (Секция II)', val(live, 'arm2_incomer', 'P'), `U=${Math.round(val(live, 'arm2_incomer', 'U'))} В · I=${Math.round(val(live, 'arm2_incomer', 'I'))} А · P=${Math.round(val(live, 'arm2_incomer', 'P'))} кВт`],
+  ] : []
+
   return (
     <div className="card" style={{ padding: 14, position: 'relative' }}>
       <button
@@ -201,10 +210,25 @@ function ObjectCard({ obj, live, canTu, onTu, onClose }: {
       ) : (
         <div style={{ background: '#f0faf3', borderLeft: '4px solid ' + COLOR.ok, padding: '8px 10px', marginBottom: 10, borderRadius: 6 }}>
           <b style={{ color: COLOR.ok }}>
-            {breaker === 1 ? 'Включён, работа в норме' : breaker === 0 ? 'Отключён' : 'Местное управление'}
+            {obj.kind === 'sectional'
+              ? (breaker === 1 ? 'ВКЛЮЧЕН — секции соединены (переброс)' : 'Отключён (нормальный режим)')
+              : breaker === 1 ? 'Включён, работа в норме' : breaker === 0 ? 'Отключён' : 'Местное управление'}
           </b>
         </div>
       )}
+
+      {/* Контекст переброса для секционного QF: значения обеих секций */}
+      {isSectional && ctxRows.map(([name, p, text]) => (
+        <div key={name} style={{
+          padding: '6px 10px', marginBottom: 6, borderRadius: 6, background: '#f6f7f9',
+          borderLeft: `3px solid ${p > 0 ? COLOR.ok : COLOR.dead}`,
+        }}>
+          <div style={{ fontSize: 11, color: '#777' }}>{name}</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: p > 0 ? '#222' : '#c44' }}>
+            {p > 0 ? text : 'ОБЕСТОЧЕНА'}
+          </div>
+        </div>
+      ))}
 
       {/* ТУ (только управляемые аппараты) */}
       {canTu && tuTarget && (
@@ -240,11 +264,9 @@ function ObjectCard({ obj, live, canTu, onTu, onClose }: {
 // ============================================================
 // ГЛАВНАЯ СХЕМА ПС 110/10 (вся сразу, клик по узлу = карточка)
 // ============================================================
-function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextMenu }: {
+function PsScheme({ tree, live, selectedId, onSelect, onObjContextMenu }: {
   tree: FactoryTree
   live: Record<string, LivePoint> | undefined
-  canTu: boolean
-  onTu: (obj: FactoryTree) => void
   selectedId: string | null
   onSelect: (obj: FactoryTree, clickX?: number) => void
   onObjContextMenu: (e: React.MouseEvent, obj: FactoryTree) => void
@@ -283,7 +305,9 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
         style={{ cursor: 'pointer' }}
         pointerEvents="bounding-box"
         onClick={(e) => onSelect(obj, e.clientX)}
-        onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(obj); onObjContextMenu(e, obj) }}
+        // ПКМ: только меню создания аварии (ТУ — через карточку/клик),
+        // иначе диалог ТУ выскакивает неожиданно вместе с меню
+        onContextMenu={(e) => onObjContextMenu(e, obj)}
       >
         <rect
           x={x - 12} y={y - 12} width={24} height={24}
@@ -363,7 +387,8 @@ function PsScheme({ tree, live, canTu, onTu, selectedId, onSelect, onObjContextM
           style={{ cursor: 'pointer' }}
           pointerEvents="bounding-box"
           onClick={(e) => onSelect(secQf, e.clientX)}
-          onContextMenu={(e) => { e.preventDefault(); if (canTu) onTu(secQf); onObjContextMenu(e, secQf) }}
+          // ПКМ: только меню создания аварии (ТУ — через карточку)
+          onContextMenu={(e) => onObjContextMenu(e, secQf)}
         >
           <rect
             x={430} y={288} width={40} height={24}
@@ -562,10 +587,8 @@ export default function MnemoPage() {
         <PsScheme
           tree={tree}
           live={live}
-          canTu={canTu}
           selectedId={selectedId}
           onSelect={onSelect}
-          onTu={(obj) => { setTuObject(obj.name); setSelectedId(obj.id); setTuOpen(true) }}
           onObjContextMenu={onObjectContextMenu}
         />
 
@@ -617,6 +640,7 @@ export default function MnemoPage() {
           y={ctxMenu.y}
           objectId={ctxMenu.obj.id}
           objectName={ctxMenu.obj.name}
+          kind={ctxMenu.obj.kind}
           onClose={() => setCtxMenu(null)}
         />
       )}

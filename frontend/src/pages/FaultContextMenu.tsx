@@ -6,19 +6,26 @@ import { useEffect, useRef } from 'react'
 import { api } from '../api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-// Шаблоны меню — те же 4 сценария, что в пульте симулятора
-const MENU_SCENARIOS: { id: string; label: string }[] = [
-  { id: 'short_circuit', label: '⚡ КЗ (сработка МТЗ)' },
-  { id: 'overload', label: '🔥 Перегрузка' },
-  { id: 'overvoltage', label: '📈 Перенапряжение' },
-  { id: 'cable_break', label: '🔌 Обрыв кабеля' },
+// Шаблоны меню. Набор зависит от ТИПА объекта (kind):
+//   - «Потеря ввода 110 кВ» — только для вводов 110 кВ (incomer110):
+//     сценарий означает обрыв ЛЭП, на фидере он бессмыслен;
+//   - остальные 4 сценария доступны на любом элементе.
+// Длительность: 25 с для потери 110 (чтобы успеть показать переброс),
+// 10 с для остальных.
+const BASE_SCENARIOS: { id: string; label: string; dur: number }[] = [
+  { id: 'short_circuit', label: '⚡ КЗ (сработка МТЗ)', dur: 10 },
+  { id: 'overload', label: '🔥 Перегрузка', dur: 10 },
+  { id: 'overvoltage', label: '📈 Перенапряжение', dur: 10 },
+  { id: 'cable_break', label: '🔌 Обрыв кабеля', dur: 10 },
 ]
+const LINE_LOSS = { id: 'line_loss_110', label: '⚡ Потеря ввода 110 кВ', dur: 25 }
 
-export function FaultContextMenu({ x, y, objectId, objectName, onClose }: {
+export function FaultContextMenu({ x, y, objectId, objectName, kind, onClose }: {
   x: number
   y: number
   objectId: string
   objectName: string
+  kind?: string
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -38,12 +45,16 @@ export function FaultContextMenu({ x, y, objectId, objectName, onClose }: {
     }
   }, [onClose])
 
-  // Инъекция выбранного шаблона на этот объект
+  // Список сценариев для этого объекта: «потеря 110» только у вводов 110 кВ
+  const scenarios: { id: string; label: string; dur: number }[] =
+    kind === 'incomer110' ? [LINE_LOSS, ...BASE_SCENARIOS] : BASE_SCENARIOS
+
+  // Инъекция выбранного шаблона на этот объект (длительность из шаблона)
   const faultMutation = useMutation({
-    mutationFn: (scenario: string) => api.simFault(objectId, scenario, 10),
-    onSuccess: (_d, scenario) => {
-      const label = MENU_SCENARIOS.find((s) => s.id === scenario)?.label ?? scenario
-      alert(`✔ ${label} — на объекте «${objectName}» (10 с)`)
+    mutationFn: (s: { id: string; dur: number }) => api.simFault(objectId, s.id, s.dur),
+    onSuccess: (_d, s) => {
+      const label = scenarios.find((v) => v.id === s.id)?.label ?? s.id
+      alert(`✔ ${label} — на объекте «${objectName}» (${s.dur} с)`)
       queryClient.invalidateQueries({ queryKey: ['events'] })
       queryClient.invalidateQueries({ queryKey: ['live'] })
     },
@@ -63,10 +74,10 @@ export function FaultContextMenu({ x, y, objectId, objectName, onClose }: {
       <div style={{ fontSize: 12, fontWeight: 700, color: '#555', padding: '4px 8px' }}>
         Создать аварию: {objectName}
       </div>
-      {MENU_SCENARIOS.map((s) => (
+      {scenarios.map((s) => (
         <div
           key={s.id}
-          onClick={() => { onClose(); faultMutation.mutate(s.id) }}
+          onClick={() => { onClose(); faultMutation.mutate(s) }}
           style={{
             padding: '7px 10px', cursor: 'pointer', borderRadius: 6, fontSize: 13,
           }}

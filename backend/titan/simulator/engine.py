@@ -66,6 +66,9 @@ class ScenarioEngine:
         # Секционный QF (учитывается только у unit 2, но поле у обоих — проще)
         self.sectional: int = 0                # 0=откл (норм. режим), 1=вкл
         self.pending_sectional: int = 0        # отложенная ТУ на секционный
+        # Колбэк «линия 110 восстановлена» — вызывает SimulatorService,
+        # чтобы сбросить СВ (он живёт в другом движке — unit 2)
+        self.on_line_restored = None
 
     def command_sectional(self, cmd: int) -> None:
         """ТУ-команда на СЕКЦИОННЫЙ выключатель (1=вкл, 2=откл)."""
@@ -110,6 +113,19 @@ class ScenarioEngine:
             log.info("Плечо %d инъекция %s завершена",
                      self.unit_id, self.injection["scenario"])
             self.injection = None
+            # После ПОТЕРИ ВВОДА 110 линия «починилась» — ввод включается
+            # обратно (на реальной ПС это АПВ — автоматическое повторное
+            # включение). Секционный QF при этом ОТКЛЮЧАЕТСЯ автоматически:
+            # держать параллельную работу двух вводов нельзя (блокировка ТУ
+            # её запрещает — и симулятор соблюдает те же правила).
+            # ВНИМАНИЕ: СВ физически живёт в движке unit 2 (REG_SECTIONAL
+            # только у него), поэтому сброс делает SimulatorService через
+            # колбэк on_line_restored — здесь сбрасываем только ввод.
+            if self.breaker == 0:
+                self.breaker = 1
+                log.info("Плечо %d: ввод 110 кВ восстановлен (АПВ)", self.unit_id)
+            if self.on_line_restored:
+                self.on_line_restored(self.unit_id)
 
         # --- Базовый нормальный режим плеча ---
         hour = time.localtime().tm_hour
@@ -249,6 +265,17 @@ class SimulatorService:
 
         # Активные comm_loss per-ТП: {unit_id: until_monotonic}
         comm_lost: dict[int, float] = {}
+
+        # Колбэк восстановления линии 110: сбросить СВ в unit 2 (параллельная
+        # работа вводов запрещена — те же правила, что проверяет ТУ-блокировка)
+        def _on_line_restored(uid: int) -> None:
+            if self.engines[2].sectional == 1:
+                self.engines[2].sectional = 0
+                log.info("Секционный QF автоматически отключён после "
+                         "восстановления ввода 110 (параллельная работа запрещена)")
+
+        for engine in self.engines.values():
+            engine.on_line_restored = _on_line_restored
 
         try:
             while True:
