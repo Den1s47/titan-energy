@@ -19,9 +19,11 @@ class Settings(BaseSettings):
     # Приложение
     app_name: str = "Титан-Энергия EMS"
 
-    # База данных. Прод: PostgreSQL 16.10 (пароль в .env, специф §11).
+    # База данных. Прод: PostgreSQL 16.10. ПАРОЛЬ И URL — ТОЛЬКО в .env
+    # (специф §11; дефолт с паролем из кода удалён после аудита: секрет
+    # не должен жить в репозитории даже в дефолтах).
     # SQLite остаётся для тестов (TITAN_TEST_DB=1 -> временный файл).
-    database_url: str = "postgresql+asyncpg://titan_app:titan2026@127.0.0.1:5432/titan"
+    database_url: str = ""   # обязательный: задаётся в backend/.env
 
     # Симулятор Modbus TCP
     sim_host: str = "127.0.0.1"      # адрес «оборудования»
@@ -64,8 +66,12 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
-    # pydantic-settings: разрешаем читать значения из файла .env
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # pydantic-settings: читаем значения из файла .env. Префикс TITAN_
+    # (TITAN_DATABASE_URL, TITAN_JWT_SECRET...), лишние переменные игнорируем.
+    model_config = {
+        "env_file": ".env", "env_file_encoding": "utf-8",
+        "env_prefix": "TITAN_", "extra": "ignore",
+    }
 
 
 # Единственный экземпляр настроек, импортируется везде как `from titan.config import settings`
