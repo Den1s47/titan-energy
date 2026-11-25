@@ -62,7 +62,6 @@ export default function AnalyticsPage() {
   const [pointCode, setPointCode] = useState('P')
   const [minutes, setMinutes] = useState(15)
   const [avgS, setAvgS] = useState(60)
-  const [cusumTarget, setCusumTarget] = useState(100)
   // Автообновление графиков (реальное время, ТЗ: «последние 5/10/15/30 минут —
   // скользящее окно, тренд»). Отключаемо, чтобы не мешать разглядывать историю.
   const [autoRefresh, setAutoRefresh] = useState(true)
@@ -83,10 +82,18 @@ export default function AnalyticsPage() {
     queryFn: () => api.analyticsShewhart(pointCode, minutes),
     refetchInterval: autoRefresh ? REFRESH_MS : false,
   })
+  // CUSUM: если пользователь не задал target вручную (флаг cusumManual),
+  // цель = среднее самого ряда (иначе при target=100 и реальном среднем 165
+  // копилка растёт на +65 за такт — график «взлетает» без всякой аномалии).
+  const [cusumManual, setCusumManual] = useState(false)
+  const [cusumManualTarget, setCusumManualTarget] = useState(100)
+  const cusumTargetAuto = seriesQuery.data?.stats?.mean ?? 100
+  const cusumTarget = cusumManual ? cusumManualTarget : cusumTargetAuto
   const cusumQuery = useQuery({
     queryKey: ['analytics-cusum', pointCode, minutes, cusumTarget],
     queryFn: () => api.analyticsCusum(pointCode, minutes, cusumTarget),
     refetchInterval: autoRefresh ? REFRESH_MS : false,
+    enabled: true,
   })
 
   // ---------- НОВОЕ: сводка «здоровья» и сравнение вводов ----------
@@ -296,8 +303,8 @@ export default function AnalyticsPage() {
           </label>
           <label>
             CUSUM target:{' '}
-            <input type="number" value={cusumTarget} style={{ width: 80 }}
-                   onChange={(e) => setCusumTarget(Number(e.target.value))} />
+          <input type="number" value={Math.round(cusumTarget)} style={{ width: 80 }}
+                 onChange={(e) => { setCusumManual(true); setCusumManualTarget(Number(e.target.value)) }} />
           </label>
           {/* Реальное время: скользящее окно обновляется само (ТЗ «тренд») */}
           <label style={{ marginLeft: 'auto' }}>
