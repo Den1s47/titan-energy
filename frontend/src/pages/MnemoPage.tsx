@@ -238,25 +238,29 @@ function ObjectCard({ obj, live, canTu, onTu, onClose }: {
         </button>
       )}
 
-      {/* Плитки показателей */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        {rows.map(([code, name, unit]) => {
-          const pnt = pointOf(live, obj.id, code)
-          const isSuspect = pnt ? pnt.quality !== 'good' : false
-          return (
-            <div key={code} style={{
-              padding: '6px 10px', borderRadius: 6, background: '#f6f7f9',
-              borderLeft: `3px solid ${isSuspect ? COLOR.warn : COLOR.ok}`,
-            }}>
-              <div style={{ fontSize: 11, color: '#777' }}>{name} {isSuspect && '⚠️'}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: isSuspect ? '#e67e00' : '#222' }}>
-                {pnt ? pnt.value.toFixed(code === 'PF' || code.startsWith('THD') ? 1 : 0) : '—'}
-                <span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}> {unit}</span>
+      {/* Плитки показателей — только у объектов С датчиками. У секционного
+          QF своих датчиков нет (только состояние вкл/выкл), поэтому вместо
+          пустых плиток «—» показываем контекст секций выше — и всё. */}
+      {!isSectional && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {rows.map(([code, name, unit]) => {
+            const pnt = pointOf(live, obj.id, code)
+            const isSuspect = pnt ? pnt.quality !== 'good' : false
+            return (
+              <div key={code} style={{
+                padding: '6px 10px', borderRadius: 6, background: '#f6f7f9',
+                borderLeft: `3px solid ${isSuspect ? COLOR.warn : COLOR.ok}`,
+              }}>
+                <div style={{ fontSize: 11, color: '#777' }}>{name} {isSuspect && '⚠️'}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: isSuspect ? '#e67e00' : '#222' }}>
+                  {pnt ? pnt.value.toFixed(code === 'PF' || code.startsWith('THD') ? 1 : 0) : '—'}
+                  <span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}> {unit}</span>
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
