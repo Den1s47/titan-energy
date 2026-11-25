@@ -13,6 +13,7 @@ API аналитики и экспорта (специф §9.2 «Аналити�
 import csv
 import io
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -227,6 +228,12 @@ async def analytics_cusum(point_code: str, minutes: float = 15,
     """
     if ":" not in point_code:
         point_code = f"arm1_incomer:{point_code}"
+    # Пентест v2: target=Infinity прошёл валидацию float (FastAPI парсит
+    # "Infinity"), cusum_fn выдавал [null...] и график умирал. Отсекаем
+    # нечисловые/бесконечные цели явно.
+    if not math.isfinite(target):
+        raise HTTPException(status_code=400,
+                            detail="target должен быть конечным числом (не Infinity/NaN)")
     values = await _load_values(point_code, minutes)
     async with sessionmaker() as session:
         db_result = await session.execute(
