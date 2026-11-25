@@ -257,7 +257,7 @@ export default function AnalyticsPage() {
     const c = cusumQuery.data
     if (!c) return
     chart.setOption({
-      title: { text: `CUSUM (target = ${c.target})`, textStyle: { color: '#d7dae0', fontSize: 14 } },
+      title: { text: `CUSUM (цель = ${Math.round(c.target)} — среднее ряда)`, textStyle: { color: '#d7dae0', fontSize: 14 } },
       tooltip: { trigger: 'axis' },
       dataZoom: [{ type: 'inside' }],
       xAxis: { type: 'category', data: c.values.map((_, i) => i), axisLabel: { color: '#8b93a0' } },
